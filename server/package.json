@@ -1,0 +1,29 @@
+{
+  "name": "airpay-server",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev src/index.ts --var BETTER_AUTH_URL=http://localhost:8787 --var FRONTEND_URL=http://localhost:3000",
+    "build": "wrangler deploy --dry-run --outdir dist",
+    "deploy": "wrangler deploy",
+    "type-check": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit push",
+    "db:migrate:local": "wrangler d1 execute airpay-db --file=./drizzle/0000_simple_crystal.sql",
+    "db:migrate:remote": "wrangler d1 execute airpay-db --file=./drizzle/0000_simple_crystal.sql --remote"
+  },
+  "dependencies": {
+    "@better-auth/drizzle-adapter": "^1.6.14",
+    "@hono/zod-validator": "^0.8.0",
+    "better-auth": "^1.6.14",
+    "drizzle-orm": "^0.45.2",
+    "hono": "^4.7.7",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250417.0",
+    "drizzle-kit": "^0.31.10",
+    "typescript": "^5.7.3",
+    "wrangler": "^4.14.0"
+  }
+}

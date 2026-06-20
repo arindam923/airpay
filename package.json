@@ -1,0 +1,17 @@
+{
+  "name": "airpay",
+  "private": true,
+  "workspaces": ["frontend", "server"],
+  "scripts": {
+    "dev": "concurrently -n fe,api -c cyan,green \"npm run dev -w frontend\" \"npm run dev -w server\"",
+    "dev:frontend": "npm run dev -w frontend",
+    "dev:server": "npm run dev -w server",
+    "build": "npm run build -w frontend && npm run build -w server",
+    "deploy": "npm run deploy -w frontend && npm run deploy -w server",
+    "deploy:frontend": "npm run deploy -w frontend",
+    "deploy:server": "npm run deploy -w server"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

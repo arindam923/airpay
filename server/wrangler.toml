@@ -1,0 +1,27 @@
+name = "airpay-server"
+main = "src/index.ts"
+compatibility_date = "2026-05-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "airpay-db"
+database_id = "ecee4b98-90fe-4818-a563-7584328ec566"
+
+[vars]
+BETTER_AUTH_URL = "https://airpay-server.arindam92.workers.dev"
+FRONTEND_URL = "https://airpay-frontend.arindam92.workers.dev"
+GOOGLE_CLIENT_ID = ""
+GOOGLE_CLIENT_SECRET = ""
+COMPANY_SOLANA_WALLET = ""
+COMPANY_ARBITRUM_WALLET = ""
+COMPANY_POLYGON_WALLET = ""
+COMPANY_ETHEREUM_WALLET = ""
+
+[observability]
+enabled = true
+
+# Cron triggers for blockchain verification
+# Runs every 1 minute
+[[triggers]]
+crons = ["* * * * *"]

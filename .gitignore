@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.next/
+*.log
+.env
+.env.local
+.vscode/
+.vercel/
+.wrangler/
+.open-next/
+*.tsbuildinfo
+.DS_Store
+*.pem
+
+
+/plans

@@ -1,0 +1,14 @@
+name = "airpay-frontend"
+main = ".open-next/worker.js"
+compatibility_date = "2026-05-01"
+compatibility_flags = ["nodejs_compat"]
+
+[assets]
+directory = ".open-next/assets"
+binding = "ASSETS"
+
+[vars]
+NEXT_PUBLIC_API_URL = "https://airpay-server.arindam92.workers.dev"
+
+[observability]
+enabled = true
