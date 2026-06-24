@@ -2,9 +2,9 @@
 
 import React from "react"
 import { motion } from "framer-motion"
-import { 
-  Zap, ShieldAlert, Shuffle, Code2, Coins, Lock, 
-  ChevronRight, ArrowRight 
+import {
+  Zap, ShieldAlert, Shuffle, Code2, Coins, Lock,
+  ChevronRight, ArrowRight
 } from "lucide-react"
 
 export default function Features() {
@@ -81,7 +81,7 @@ export default function Features() {
   return (
     <section id="features" className="py-24 relative overflow-hidden bg-black border-t border-neutral-900">
       <div className="max-w-7xl mx-auto px-6 relative z-10">
-        
+
         {/* Section Header */}
         <div className="max-w-2xl mb-20">
           <span className="text-xs font-mono font-bold tracking-widest text-neutral-500 uppercase">
@@ -96,7 +96,7 @@ export default function Features() {
         </div>
 
         {/* Asymmetric Cards Grid */}
-        <motion.div 
+        <motion.div
           className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
           variants={containerVariants}
           initial="hidden"
@@ -151,9 +151,9 @@ export default function Features() {
               Create an developer credentials keys, read step-by-step guides, or launch custom checkout sessions in sandbox.
             </p>
           </div>
-          <a 
+          <a
             href="#playground"
-            className="flex items-center gap-2 px-4.5 py-3 bg-white text-black hover:bg-neutral-200 font-bold rounded-lg text-xs transition-colors shrink-0"
+            className="flex items-center gap-2 px-6 py-3 bg-white text-black hover:bg-neutral-200 font-bold rounded-lg text-xs transition-colors shrink-0"
           >
             <span>Get Api Credentials</span>
             <ArrowRight className="w-3.5 h-3.5" />

@@ -42,5 +42,35 @@ export function createAuth(cfg: AuthConfig) {
       autoSignIn: true,
     },
     socialProviders,
+    databaseHooks: {
+      user: {
+        create: {
+          after: async (createdUser: { id: string; name?: string | null; email?: string | null }) => {
+            try {
+              const hookDB = getDB(cfg.binding)
+              const now = new Date()
+              const businessName =
+                (createdUser.name && createdUser.name.trim()) ||
+                (createdUser.email && createdUser.email.split("@")[0]) ||
+                "New Merchant"
+              await hookDB.insert(schema.merchantProfiles).values({
+                id: crypto.randomUUID(),
+                userId: createdUser.id,
+                businessName,
+                feeType: "part_of",
+                feePercentage: 200,
+                webhookUrl: null,
+                webhookSecret: null,
+                sandboxMode: true,
+                createdAt: now,
+                updatedAt: now,
+              })
+            } catch (err) {
+              console.error("Failed to auto-create merchant profile for user", createdUser.id, err)
+            }
+          },
+        },
+      },
+    },
   })
 }

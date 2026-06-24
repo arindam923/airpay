@@ -9,8 +9,8 @@
     "type-check": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit push",
-    "db:migrate:local": "wrangler d1 execute airpay-db --file=./drizzle/0000_simple_crystal.sql",
-    "db:migrate:remote": "wrangler d1 execute airpay-db --file=./drizzle/0000_simple_crystal.sql --remote"
+    "db:migrate:local": "for f in drizzle/0000_simple_crystal.sql drizzle/0001_ancient_shadowcat.sql drizzle/0002_low_sharon_carter.sql drizzle/0003_complete_schema.sql drizzle/0004_remove_company_wallet.sql drizzle/0005_console_dynamic.sql; do wrangler d1 execute airpay-db --file=./$f; done",
+    "db:migrate:remote": "for f in drizzle/0000_simple_crystal.sql drizzle/0001_ancient_shadowcat.sql drizzle/0002_low_sharon_carter.sql drizzle/0003_complete_schema.sql drizzle/0004_remove_company_wallet.sql drizzle/0005_console_dynamic.sql; do wrangler d1 execute airpay-db --file=./$f --remote; done"
   },
   "dependencies": {
     "@better-auth/drizzle-adapter": "^1.6.14",

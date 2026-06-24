@@ -1,15 +1,32 @@
 "use client"
 
-import React, { useState, useEffect } from "react"
+import React, { useState, useEffect, useCallback } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { 
   Link2, Smartphone, Sparkles, Check, Copy, 
-  QrCode, Wallet, ShieldCheck, RefreshCw, Cpu
+  QrCode, Wallet, ShieldCheck, RefreshCw, Cpu, History, ExternalLink
 } from "lucide-react"
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8787"
 
-export default function CheckoutTab() {
+interface CheckoutLink {
+  id: string
+  productName: string
+  amount: number
+  currency: string
+  network: string
+  status: string
+  buyerEmail?: string
+  collectEmail: boolean
+  expiresAt: number
+  createdAt: number
+}
+
+interface CheckoutTabProps {
+  onRefresh?: () => void
+}
+
+export default function CheckoutTab({ onRefresh }: CheckoutTabProps = {}) {
   // Configurator Form States
   const [productName, setProductName] = useState("AirPay Pro Plan SaaS")
   const [priceAmount, setPriceAmount] = useState("49.00")
@@ -27,6 +44,27 @@ export default function CheckoutTab() {
   // Mobile Simulator States
   const [simStep, setSimStep] = useState<"idle" | "connecting" | "paying" | "broadcasting" | "success">("idle")
   const [mockEmailInput, setMockEmailInput] = useState("client@buyer.io")
+
+  // Recent links state
+  const [recentLinks, setRecentLinks] = useState<CheckoutLink[]>([])
+  const [isLoadingLinks, setIsLoadingLinks] = useState(true)
+
+  const fetchRecentLinks = useCallback(async () => {
+    setIsLoadingLinks(true)
+    try {
+      const res = await fetch(`${API_URL}/api/merchant/checkout-links?limit=10`, {
+        credentials: "include",
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setRecentLinks(data.links || [])
+      }
+    } catch {} finally { setIsLoadingLinks(false) }
+  }, [])
+
+  useEffect(() => {
+    fetchRecentLinks()
+  }, [fetchRecentLinks])
 
   // Generate payment link via real API
   const generateLink = async () => {
@@ -55,6 +93,7 @@ export default function CheckoutTab() {
       setGeneratedLink(`${origin}/checkout/${data.id}`)
       setSessionId(data.id)
       setSimStep("idle")
+      await fetchRecentLinks()
     } catch (err: any) {
       alert(err.message || "Failed to create checkout session")
     } finally {
@@ -308,6 +347,70 @@ export default function CheckoutTab() {
 
           </motion.div>
         )}
+
+        <div className="glass-card border border-neutral-900 rounded-xl p-5 shadow-xl">
+          <div className="flex items-center justify-between pb-3 border-b border-neutral-900 mb-4">
+            <div className="flex items-center gap-2">
+              <History className="w-4 h-4 text-cyan-400" />
+              <h3 className="text-xs font-bold text-white uppercase tracking-wider font-mono">
+                Recent Checkout Links
+              </h3>
+            </div>
+            <button
+              onClick={fetchRecentLinks}
+              type="button"
+              className="text-[9px] font-mono text-neutral-400 hover:text-white flex items-center gap-1"
+            >
+              <RefreshCw className={`w-3 h-3 ${isLoadingLinks ? "animate-spin" : ""}`} />
+              <span>Refresh</span>
+            </button>
+          </div>
+
+          {isLoadingLinks ? (
+            <div className="flex items-center justify-center py-6">
+              <RefreshCw className="w-4 h-4 text-neutral-500 animate-spin" />
+            </div>
+          ) : recentLinks.length === 0 ? (
+            <div className="text-center py-8 text-[10px] text-neutral-500 font-mono">
+              No checkout links yet. Generate one above to get started.
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {recentLinks.map(link => (
+                <div key={link.id} className="p-3 bg-neutral-950 border border-neutral-900 rounded-lg flex items-center justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-mono text-white font-bold truncate">{link.productName}</span>
+                      <span className={`text-[8px] font-mono uppercase px-1.5 py-0.5 rounded shrink-0 ${
+                        link.status === "completed"
+                          ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                          : link.status === "pending"
+                          ? "bg-yellow-500/10 text-yellow-400 border border-yellow-500/20"
+                          : "bg-neutral-900 text-neutral-500 border border-neutral-800"
+                      }`}>{link.status}</span>
+                    </div>
+                    <div className="flex items-center gap-2 mt-1 text-[9px] font-mono text-neutral-500">
+                      <span>${(link.amount / 100).toFixed(2)} {link.currency}</span>
+                      <span>·</span>
+                      <span>{link.network}</span>
+                      <span>·</span>
+                      <span>{new Date(link.createdAt).toLocaleDateString("en-US", { month: "short", day: "2-digit" })}</span>
+                    </div>
+                  </div>
+                  <a
+                    href={`/checkout/${link.id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-indigo-400 hover:text-indigo-300 p-1.5 rounded bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 shrink-0"
+                    title="Open checkout"
+                  >
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
       </div>
 

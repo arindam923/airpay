@@ -62,6 +62,7 @@ export const merchantProfiles = sqliteTable("merchant_profiles", {
   feePercentage: integer("fee_percentage").notNull().default(200), // basis points (200 = 2%)
   webhookUrl: text("webhook_url"),
   webhookSecret: text("webhook_secret"),
+  sandboxMode: integer("sandbox_mode", { mode: "boolean" }).notNull().default(true),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
 })
@@ -142,5 +143,65 @@ export const webhookDeliveries = sqliteTable("webhook_deliveries", {
   responseBody: text("response_body"),
   attempt: integer("attempt").notNull(),
   deliveredAt: integer("delivered_at", { mode: "timestamp_ms" }),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+})
+
+// API Keys (publishable, secret, signing) — full value never stored, only sha256 hash
+export const apiKeys = sqliteTable("api_keys", {
+  id: text("id").primaryKey(),
+  merchantProfileId: text("merchant_profile_id")
+    .notNull()
+    .references(() => merchantProfiles.id, { onDelete: "cascade" }),
+  type: text("type").notNull(), // 'publishable' | 'secret' | 'signing'
+  environment: text("environment").notNull(), // 'test' | 'live'
+  prefix: text("prefix").notNull(), // 'pk_test_' | 'pk_live_' | 'sk_test_' | 'sk_live_' | 'whsec_'
+  hashedValue: text("hashed_value").notNull(),
+  lastFour: text("last_four").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  lastUsedAt: integer("last_used_at", { mode: "timestamp_ms" }),
+  revokedAt: integer("revoked_at", { mode: "timestamp_ms" }),
+})
+
+// Webhook event subscriptions (per merchant, per event)
+export const webhookEventSubscriptions = sqliteTable("webhook_event_subscriptions", {
+  id: text("id").primaryKey(),
+  merchantProfileId: text("merchant_profile_id")
+    .notNull()
+    .references(() => merchantProfiles.id, { onDelete: "cascade" }),
+  event: text("event").notNull(),
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+})
+
+// Settlement settings (1:1 with merchant profile)
+export const settlementSettings = sqliteTable("settlement_settings", {
+  id: text("id").primaryKey(),
+  merchantProfileId: text("merchant_profile_id")
+    .notNull()
+    .unique()
+    .references(() => merchantProfiles.id, { onDelete: "cascade" }),
+  autoSettle: integer("auto_settle", { mode: "boolean" }).notNull().default(true),
+  sweepThresholdCents: integer("sweep_threshold_cents").notNull().default(100000), // $1,000
+  sweepSchedule: text("sweep_schedule").notNull().default("daily"), // 'instant' | 'daily' | 'weekly'
+  sponsorGas: integer("sponsor_gas", { mode: "boolean" }).notNull().default(true),
+  gasCapCents: integer("gas_cap_cents").notNull().default(25000), // $250
+  enabledChains: text("enabled_chains").notNull().default('["Solana","Arbitrum","Polygon"]'),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+})
+
+// Sweep logs (history of auto-sweeps to merchant treasury vault)
+export const sweepLogs = sqliteTable("sweep_logs", {
+  id: text("id").primaryKey(),
+  merchantProfileId: text("merchant_profile_id")
+    .notNull()
+    .references(() => merchantProfiles.id, { onDelete: "cascade" }),
+  paymentIds: text("payment_ids").notNull(), // JSON array
+  amount: integer("amount").notNull(), // cents
+  currency: text("currency").notNull(),
+  network: text("network").notNull(),
+  destinationAddress: text("destination_address").notNull(),
+  txHash: text("tx_hash"),
+  status: text("status").notNull().default("completed"), // 'pending' | 'completed' | 'failed'
+  sweptAt: integer("swept_at", { mode: "timestamp_ms" }).notNull(),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 })

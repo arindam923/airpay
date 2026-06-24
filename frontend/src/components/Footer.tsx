@@ -8,7 +8,7 @@ export default function Footer() {
     <footer className="bg-black border-t border-neutral-900 pt-16 pb-12 text-slate-400">
       <div className="max-w-7xl mx-auto px-6">
         <div className="grid grid-cols-2 md:grid-cols-6 gap-10 mb-12">
-          
+
           {/* Logo & Info (2 Columns wide on medium+) */}
           <div className="col-span-2 flex flex-col justify-between gap-4">
             <div>
@@ -17,14 +17,14 @@ export default function Footer() {
                   <Cpu className="w-4 h-4 text-indigo-400 group-hover:text-indigo-300 transition-colors" />
                 </div>
                 <span className="font-extrabold text-lg tracking-tight text-white">
-                  Air<span className="text-indigo-400 font-medium group-hover:text-indigo-300 transition-colors font-medium">Pay</span>
+                  Air<span className="text-indigo-400  group-hover:text-indigo-300 transition-colors font-medium">Pay</span>
                 </span>
               </a>
               <p className="text-xs text-slate-500 max-w-[240px] leading-relaxed font-medium">
                 The developer-first stablecoin payment engine. Stripe-grade APIs for modern internet commerce.
               </p>
             </div>
-            
+
             {/* System Status */}
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-neutral-950 border border-neutral-900 text-[10px] font-mono text-emerald-450 w-fit">
               <span className="relative flex h-1.5 w-1.5">
@@ -86,7 +86,7 @@ export default function Footer() {
           <span>
             © {new Date().getFullYear()} AirPay Inc. All rights reserved.
           </span>
-          
+
           <div className="flex items-center gap-5">
             <a href="#" className="hover:text-white transition-colors" aria-label="Twitter">
               <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24">

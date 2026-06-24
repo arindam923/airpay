@@ -1,49 +1,57 @@
 "use client"
 
-import React, { useState, useMemo } from "react"
+import React, { useState, useMemo, useEffect } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { 
-  Search, Filter, CheckCircle2, AlertTriangle, 
-  Clock, ExternalLink, X, Plus, Terminal,
-  Cpu, ArrowUpRight, HelpCircle, Code
+  Search, CheckCircle2, AlertTriangle, 
+  Clock, ExternalLink, X, Terminal, Code, RefreshCw
 } from "lucide-react"
+import type { ConsoleTransaction } from "@/app/console/page"
 
-interface Transaction {
-  id: string
-  amount: number
-  currency: string
-  network: string
-  timestamp: Date | string
-  status: "pending" | "success" | "failed"
-  customerEmail?: string
-  txHash?: string
-  senderAddress?: string
-}
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8787"
 
 interface PaymentsTabProps {
-  transactions: Transaction[]
-  onSimulatePayment: (amount: number, currency: string, network: string, status: "success" | "failed", email: string) => void
+  transactions: ConsoleTransaction[]
+  isLoading?: boolean
+  onRefresh?: () => void
 }
 
-export default function PaymentsTab({ transactions, onSimulatePayment }: PaymentsTabProps) {
-  // Filter States
+interface PaymentDetail {
+  id: string
+  checkoutSessionId: string
+  txHash: string
+  buyerAddress?: string
+  signature?: string
+  amount: number
+  feeAmount: number
+  merchantAmount: number
+  status: string
+  blockchainStatus: string
+  confirmations: number
+  retryCount: number
+  failureReason?: string
+  webhookDelivered: boolean
+  webhookDeliveryCount: number
+  settledAt?: number
+  createdAt: number
+  productName: string
+  currency: string
+  network: string
+  buyerEmail?: string
+  merchantWalletAddress: string
+  companyWalletAddress: string
+}
+
+export default function PaymentsTab({ transactions, isLoading, onRefresh }: PaymentsTabProps) {
   const [search, setSearch] = useState("")
   const [currencyFilter, setCurrencyFilter] = useState("All")
   const [networkFilter, setNetworkFilter] = useState("All")
   const [statusFilter, setStatusFilter] = useState("All")
 
-  // UI Interactive States
-  const [selectedTx, setSelectedTx] = useState<Transaction | null>(null)
-  const [showSimulator, setShowSimulator] = useState(false)
+  const [selectedTx, setSelectedTx] = useState<ConsoleTransaction | null>(null)
+  const [detail, setDetail] = useState<PaymentDetail | null>(null)
+  const [isLoadingDetail, setIsLoadingDetail] = useState(false)
 
-  // Simulator Form States
-  const [simAmount, setSimAmount] = useState("150")
-  const [simCurrency, setSimCurrency] = useState("USDC")
-  const [simNetwork, setSimNetwork] = useState("Solana")
-  const [simStatus, setSimStatus] = useState<"success" | "failed">("success")
-  const [simEmail, setSimEmail] = useState("merchant@sandbox.io")
-
-  // Filtered Transactions
   const filteredTxs = useMemo(() => {
     return transactions.filter(tx => {
       const matchesSearch = 
@@ -56,25 +64,33 @@ export default function PaymentsTab({ transactions, onSimulatePayment }: Payment
       const matchesStatus = statusFilter === "All" || tx.status === statusFilter
 
       return matchesSearch && matchesCurrency && matchesNetwork && matchesStatus
-    }).reverse() // show latest first
+    })
   }, [transactions, search, currencyFilter, networkFilter, statusFilter])
 
-  // Handle Simulation submit
-  const handleSimulate = (e: React.FormEvent) => {
-    e.preventDefault()
-    const amountVal = parseFloat(simAmount) || 0.0
-    if (amountVal <= 0) return
+  useEffect(() => {
+    if (!selectedTx) {
+      setDetail(null)
+      return
+    }
+    let cancelled = false
+    setIsLoadingDetail(true)
+    fetch(`${API_URL}/api/merchant/payments/${selectedTx.id}`, {
+      credentials: "include",
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then((data: PaymentDetail | null) => {
+        if (!cancelled) setDetail(data)
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setIsLoadingDetail(false) })
+    return () => { cancelled = true }
+  }, [selectedTx])
 
-    onSimulatePayment(amountVal, simCurrency, simNetwork, simStatus, simEmail)
-    setShowSimulator(false)
-    
-    // reset simulator amount
-    setSimAmount("150")
-  }
-
-  // Helper formats
-  const formatDate = (dateInput: Date | string) => {
-    const date = typeof dateInput === "string" ? new Date(dateInput) : dateInput
+  const formatDate = (dateInput: Date | string | number | undefined) => {
+    if (!dateInput) return "—"
+    const date = typeof dateInput === "number" ? new Date(dateInput) 
+      : typeof dateInput === "string" ? new Date(dateInput) 
+      : dateInput
     return date.toLocaleDateString("en-US", {
       month: "short",
       day: "2-digit",
@@ -84,29 +100,40 @@ export default function PaymentsTab({ transactions, onSimulatePayment }: Payment
     })
   }
 
-  // Simulated JSON Webhook payload generator
-  const getSimulatedWebhookJson = (tx: Transaction) => {
+  const getExplorerUrl = (network: string, hash?: string) => {
+    if (!hash) return "#"
+    if (network === "Solana") return `https://explorer.solana.com/tx/${hash}`
+    if (network === "Ethereum") return `https://etherscan.io/tx/${hash}`
+    if (network === "Arbitrum") return `https://arbiscan.io/tx/${hash}`
+    if (network === "Polygon") return `https://polygonscan.com/tx/${hash}`
+    return "#"
+  }
+
+  const getWebhookJson = () => {
+    if (!detail) return ""
     const payload = {
-      id: `evt_${Math.random().toString(36).substring(2, 9)}`,
+      id: `evt_${detail.id.slice(-8)}`,
       object: "event",
-      type: tx.status === "success" ? "payment.succeeded" : "payment.failed",
-      created: Math.floor(new Date(tx.timestamp).getTime() / 1000),
+      type: detail.status === "completed" || detail.status === "settled" ? "payment.succeeded" : "payment.failed",
+      created: Math.floor(detail.createdAt / 1000),
       data: {
-        object: "payment_intent",
-        id: tx.id,
-        amount: Math.round(tx.amount * 100),
-        currency: tx.currency.toLowerCase(),
-        network: tx.network.toLowerCase(),
-        status: tx.status === "success" ? "succeeded" : "failed",
-        transaction_hash: tx.txHash || "0x000000000000000000000",
-        customer: {
-          email: tx.customerEmail || "anonymous@wallet.xyz"
+        object: "payment",
+        id: detail.id,
+        amount: detail.amount,
+        feeAmount: detail.feeAmount,
+        merchantAmount: detail.merchantAmount,
+        currency: detail.currency,
+        network: detail.network,
+        status: detail.status,
+        blockchainStatus: detail.blockchainStatus,
+        confirmations: detail.confirmations,
+        transactionHash: detail.txHash,
+        buyer: {
+          address: detail.buyerAddress,
+          email: detail.buyerEmail,
         },
-        vault_routing: {
-          gas_sponsored: true,
-          relayer_speed_ms: 1840
-        }
-      }
+        productName: detail.productName,
+      },
     }
     return JSON.stringify(payload, null, 2)
   }
@@ -114,11 +141,9 @@ export default function PaymentsTab({ transactions, onSimulatePayment }: Payment
   return (
     <div className="space-y-6">
       
-      {/* Table Filters & Header Action */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-neutral-950/20 p-4 border border-neutral-900 rounded-xl">
         <div className="flex-1 grid grid-cols-1 sm:grid-cols-4 gap-3">
           
-          {/* Search bar */}
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-500" />
             <input 
@@ -130,7 +155,6 @@ export default function PaymentsTab({ transactions, onSimulatePayment }: Payment
             />
           </div>
 
-          {/* Currency select */}
           <div className="relative">
             <select
               value={currencyFilter}
@@ -144,7 +168,6 @@ export default function PaymentsTab({ transactions, onSimulatePayment }: Payment
             </select>
           </div>
 
-          {/* Network select */}
           <div className="relative">
             <select
               value={networkFilter}
@@ -159,7 +182,6 @@ export default function PaymentsTab({ transactions, onSimulatePayment }: Payment
             </select>
           </div>
 
-          {/* Status select */}
           <div className="relative">
             <select
               value={statusFilter}
@@ -167,7 +189,7 @@ export default function PaymentsTab({ transactions, onSimulatePayment }: Payment
               className="w-full bg-black border border-neutral-900 text-[10px] text-neutral-400 font-mono rounded px-3 py-1.5 focus:outline-none focus:border-indigo-500 appearance-none cursor-pointer"
             >
               <option value="All">All Statuses</option>
-              <option value="success">Success</option>
+              <option value="success">Settled</option>
               <option value="pending">Pending</option>
               <option value="failed">Failed</option>
             </select>
@@ -175,17 +197,16 @@ export default function PaymentsTab({ transactions, onSimulatePayment }: Payment
 
         </div>
 
-        {/* Action Button */}
         <button
-          onClick={() => setShowSimulator(true)}
-          className="inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-xs font-bold transition-all shadow-md shrink-0"
+          onClick={onRefresh}
+          type="button"
+          className="inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-neutral-300 rounded text-xs font-bold transition-all shrink-0"
         >
-          <Plus className="w-3.5 h-3.5" />
-          <span>Simulate Payment</span>
+          <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? "animate-spin" : ""}`} />
+          <span>Refresh</span>
         </button>
       </div>
 
-      {/* Database Table view */}
       <div className="glass-card border border-neutral-900 rounded-xl overflow-hidden shadow-xl">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
@@ -193,11 +214,12 @@ export default function PaymentsTab({ transactions, onSimulatePayment }: Payment
               <tr className="border-b border-neutral-900 text-[9px] uppercase tracking-wider text-neutral-500 font-mono bg-neutral-950/50">
                 <th className="py-3.5 px-5 font-bold">Payment ID</th>
                 <th className="py-3.5 px-4 font-bold">Amount</th>
+                <th className="py-3.5 px-4 font-bold">Product</th>
                 <th className="py-3.5 px-4 font-bold">Customer</th>
                 <th className="py-3.5 px-4 font-bold">Network</th>
                 <th className="py-3.5 px-4 font-bold">TX Hash</th>
                 <th className="py-3.5 px-4 font-bold">Status</th>
-                <th className="py-3.5 px-5 font-bold text-right">Settled At</th>
+                <th className="py-3.5 px-5 font-bold text-right">Created</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-900/60 text-xs font-medium">
@@ -207,20 +229,19 @@ export default function PaymentsTab({ transactions, onSimulatePayment }: Payment
                   onClick={() => setSelectedTx(tx)}
                   className="hover:bg-neutral-950/70 transition-colors cursor-pointer group"
                 >
-                  {/* ID */}
                   <td className="py-4 px-5 font-mono text-white font-semibold text-[11px] group-hover:text-indigo-400 transition-colors">
-                    {tx.id}
+                    {tx.id.slice(0, 12)}…
                   </td>
-                  {/* Amount */}
                   <td className="py-4 px-4 font-mono">
                     <span className="text-white font-bold">${tx.amount.toFixed(2)}</span>
                     <span className="text-[10px] text-neutral-500 ml-1 font-semibold">{tx.currency}</span>
                   </td>
-                  {/* Customer email */}
-                  <td className="py-4 px-4 text-neutral-450 truncate max-w-[150px]">
-                    {tx.customerEmail || "sandbox-terminal"}
+                  <td className="py-4 px-4 text-neutral-350 truncate max-w-[160px]">
+                    {tx.productName || "—"}
                   </td>
-                  {/* Network */}
+                  <td className="py-4 px-4 text-neutral-450 truncate max-w-[150px]">
+                    {tx.customerEmail || "—"}
+                  </td>
                   <td className="py-4 px-4 text-neutral-400">
                     <span className="inline-flex items-center gap-1.5">
                       <span className={`w-1.5 h-1.5 rounded-full ${
@@ -231,16 +252,14 @@ export default function PaymentsTab({ transactions, onSimulatePayment }: Payment
                       {tx.network}
                     </span>
                   </td>
-                  {/* Hash */}
                   <td className="py-4 px-4 font-mono text-[10px] text-neutral-600 truncate max-w-[120px]">
-                    {tx.txHash || "0x00...000"}
+                    {tx.txHash ? `${tx.txHash.slice(0, 8)}…${tx.txHash.slice(-4)}` : "—"}
                   </td>
-                  {/* Status */}
                   <td className="py-4 px-4">
                     {tx.status === "success" ? (
                       <span className="inline-flex items-center gap-1 text-[9px] font-bold font-mono text-emerald-450 uppercase">
                         <CheckCircle2 className="w-3.5 h-3.5" />
-                        <span>Success</span>
+                        <span>Settled</span>
                       </span>
                     ) : tx.status === "failed" ? (
                       <span className="inline-flex items-center gap-1 text-[9px] font-bold font-mono text-red-500 uppercase">
@@ -254,7 +273,6 @@ export default function PaymentsTab({ transactions, onSimulatePayment }: Payment
                       </span>
                     )}
                   </td>
-                  {/* Date */}
                   <td className="py-4 px-5 text-right text-neutral-500 text-[10px] font-mono">
                     {formatDate(tx.timestamp)}
                   </td>
@@ -263,18 +281,12 @@ export default function PaymentsTab({ transactions, onSimulatePayment }: Payment
 
               {filteredTxs.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center">
+                  <td colSpan={8} className="py-12 text-center">
                     <div className="max-w-xs mx-auto">
                       <p className="text-sm font-bold text-white">No transactions found</p>
                       <p className="text-[11px] text-neutral-500 mt-1">
-                        Try modifying your filter options or trigger a mock transaction using the simulator.
+                        Payments appear here once a buyer completes a hosted checkout.
                       </p>
-                      <button
-                        onClick={() => setShowSimulator(true)}
-                        className="mt-4 inline-flex items-center gap-1 px-3 py-1.5 bg-neutral-900 border border-neutral-800 hover:border-neutral-700 text-neutral-300 rounded text-[10px] font-mono font-bold"
-                      >
-                        Launch Payment Simulator
-                      </button>
                     </div>
                   </td>
                 </tr>
@@ -284,173 +296,9 @@ export default function PaymentsTab({ transactions, onSimulatePayment }: Payment
         </div>
       </div>
 
-      {/* Live Payment Simulator Modal Overlay */}
-      <AnimatePresence>
-        {showSimulator && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center">
-            {/* Backdrop */}
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setShowSimulator(false)}
-              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
-            />
-
-            {/* Modal Body */}
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 10 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 10 }}
-              transition={{ type: "spring", duration: 0.4 }}
-              className="relative w-full max-w-md bg-neutral-950 border border-neutral-900 rounded-xl p-6 shadow-2xl z-10"
-            >
-              {/* Close Button */}
-              <button
-                onClick={() => setShowSimulator(false)}
-                className="absolute top-4 right-4 p-1.5 text-neutral-500 hover:text-white rounded bg-neutral-900/60 border border-neutral-850 hover:border-neutral-800 transition-all"
-              >
-                <X className="w-4 h-4" />
-              </button>
-
-              <div className="flex items-center gap-2 mb-4">
-                <Cpu className="w-5 h-5 text-indigo-400" />
-                <h3 className="text-sm font-extrabold text-white uppercase tracking-wider font-mono">
-                  Stablecoin Transaction Simulator
-                </h3>
-              </div>
-              <p className="text-[10px] text-neutral-500 font-semibold mb-6">
-                Broadcast simulated stablecoin deposits to mock your checkout integrations and trigger webhook delivery logic.
-              </p>
-
-              <form onSubmit={handleSimulate} className="space-y-4">
-                {/* Amount */}
-                <div className="space-y-1.5">
-                  <label className="text-[9px] font-bold text-neutral-400 uppercase tracking-wider font-mono block">
-                    Settlement Amount (USD equivalent)
-                  </label>
-                  <div className="relative">
-                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-500 font-mono text-xs font-bold">$</span>
-                    <input
-                      type="number"
-                      value={simAmount}
-                      onChange={(e) => setSimAmount(e.target.value)}
-                      placeholder="Amount"
-                      className="w-full pl-7 pr-3 py-2 bg-black border border-neutral-900 rounded text-xs font-bold text-white focus:outline-none focus:border-indigo-500 font-mono"
-                      required
-                    />
-                  </div>
-                  {/* Shortcuts */}
-                  <div className="flex gap-2 pt-1.5">
-                    {["10", "50", "150", "500", "1200"].map(val => (
-                      <button
-                        type="button"
-                        key={val}
-                        onClick={() => setSimAmount(val)}
-                        className="px-2 py-0.5 text-[9px] font-mono bg-neutral-900 border border-neutral-850 text-neutral-400 hover:text-white hover:border-neutral-700 rounded transition-all"
-                      >
-                        ${val}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Coin & Chain */}
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
-                    <label className="text-[9px] font-bold text-neutral-400 uppercase tracking-wider font-mono block">
-                      Stablecoin Asset
-                    </label>
-                    <select
-                      value={simCurrency}
-                      onChange={(e) => setSimCurrency(e.target.value)}
-                      className="w-full bg-black border border-neutral-900 text-xs text-white font-mono rounded px-3 py-2 focus:outline-none focus:border-indigo-500 cursor-pointer"
-                    >
-                      <option value="USDC">USDC</option>
-                      <option value="USDT">USDT</option>
-                      <option value="EURC">EURC</option>
-                    </select>
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-[9px] font-bold text-neutral-400 uppercase tracking-wider font-mono block">
-                      Settlement Chain
-                    </label>
-                    <select
-                      value={simNetwork}
-                      onChange={(e) => setSimNetwork(e.target.value)}
-                      className="w-full bg-black border border-neutral-900 text-xs text-white font-mono rounded px-3 py-2 focus:outline-none focus:border-indigo-500 cursor-pointer"
-                    >
-                      <option value="Solana">Solana</option>
-                      <option value="Arbitrum">Arbitrum</option>
-                      <option value="Polygon">Polygon</option>
-                      <option value="Ethereum">Ethereum</option>
-                    </select>
-                  </div>
-                </div>
-
-                {/* Customer Email */}
-                <div className="space-y-1.5">
-                  <label className="text-[9px] font-bold text-neutral-400 uppercase tracking-wider font-mono block">
-                    Customer Account Email
-                  </label>
-                  <input
-                    type="email"
-                    value={simEmail}
-                    onChange={(e) => setSimEmail(e.target.value)}
-                    placeholder="email@customer.com"
-                    className="w-full px-3 py-2 bg-black border border-neutral-900 rounded text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"
-                    required
-                  />
-                </div>
-
-                {/* Sim Outcome status */}
-                <div className="space-y-1.5">
-                  <label className="text-[9px] font-bold text-neutral-400 uppercase tracking-wider font-mono block">
-                    Simulation Output
-                  </label>
-                  <div className="flex gap-4">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="simStatus"
-                        checked={simStatus === "success"}
-                        onChange={() => setSimStatus("success")}
-                        className="accent-indigo-500 text-indigo-500 cursor-pointer"
-                      />
-                      <span className="text-xs text-neutral-300 font-medium">Succeed Payment</span>
-                    </label>
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="simStatus"
-                        checked={simStatus === "failed"}
-                        onChange={() => setSimStatus("failed")}
-                        className="accent-indigo-500 text-indigo-500 cursor-pointer"
-                      />
-                      <span className="text-xs text-neutral-300 font-medium text-red-400">Trigger Rejection</span>
-                    </label>
-                  </div>
-                </div>
-
-                {/* Submit button */}
-                <button
-                  type="submit"
-                  className="w-full py-2.5 mt-4 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded transition-colors shadow-md"
-                >
-                  Generate Simulated Event
-                </button>
-
-              </form>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* Slide-out Ledger Inspector Drawer (right side panel) */}
       <AnimatePresence>
         {selectedTx && (
           <div className="fixed inset-0 z-50 flex justify-end">
-            {/* Backdrop */}
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -459,7 +307,6 @@ export default function PaymentsTab({ transactions, onSimulatePayment }: Payment
               className="absolute inset-0 bg-black/70 backdrop-blur-sm"
             />
 
-            {/* Panel Body */}
             <motion.div
               initial={{ x: "100%" }}
               animate={{ x: 0 }}
@@ -468,11 +315,10 @@ export default function PaymentsTab({ transactions, onSimulatePayment }: Payment
               className="relative w-full max-w-lg bg-neutral-950 border-l border-neutral-900 h-full p-6 shadow-2xl flex flex-col justify-between overflow-y-auto"
             >
               <div>
-                {/* Header */}
                 <div className="flex items-center justify-between pb-4 border-b border-neutral-900 mb-6">
                   <div>
                     <h3 className="text-xs font-bold text-neutral-500 uppercase tracking-widest font-mono">
-                      Telemetry Node Inspector
+                      Payment Inspector
                     </h3>
                     <h2 className="text-sm font-bold text-white mt-1 font-mono">
                       {selectedTx.id}
@@ -480,118 +326,146 @@ export default function PaymentsTab({ transactions, onSimulatePayment }: Payment
                   </div>
                   <button
                     onClick={() => setSelectedTx(null)}
+                    type="button"
                     className="p-1.5 text-neutral-500 hover:text-white rounded bg-neutral-900/60 border border-neutral-850 hover:border-neutral-800 transition-all"
                   >
                     <X className="w-4 h-4" />
                   </button>
                 </div>
 
-                {/* Status bar */}
-                <div className={`p-3.5 rounded-lg border mb-6 flex items-center justify-between ${
-                  selectedTx.status === "success" 
-                    ? "bg-emerald-500/5 border-emerald-500/20 text-emerald-400"
-                    : selectedTx.status === "failed"
-                    ? "bg-red-500/5 border-red-500/20 text-red-400"
-                    : "bg-yellow-500/5 border-yellow-500/20 text-yellow-400"
-                }`}>
-                  <div className="flex items-center gap-2">
-                    {selectedTx.status === "success" ? (
-                      <CheckCircle2 className="w-4.5 h-4.5" />
-                    ) : selectedTx.status === "failed" ? (
-                      <AlertTriangle className="w-4.5 h-4.5" />
-                    ) : (
-                      <Clock className="w-4.5 h-4.5" />
+                {isLoadingDetail && (
+                  <div className="text-[10px] font-mono text-neutral-500 py-6 text-center">
+                    Loading payment details…
+                  </div>
+                )}
+
+                {detail && (
+                  <>
+                    <div className={`p-3.5 rounded-lg border mb-6 flex items-center justify-between ${
+                      detail.status === "completed" || detail.status === "settled"
+                        ? "bg-emerald-500/5 border-emerald-500/20 text-emerald-400"
+                        : detail.status === "failed"
+                        ? "bg-red-500/5 border-red-500/20 text-red-400"
+                        : "bg-yellow-500/5 border-yellow-500/20 text-yellow-400"
+                    }`}>
+                      <div className="flex items-center gap-2">
+                        {detail.status === "completed" || detail.status === "settled" ? (
+                          <CheckCircle2 className="w-4 h-4" />
+                        ) : detail.status === "failed" ? (
+                          <AlertTriangle className="w-4 h-4" />
+                        ) : (
+                          <Clock className="w-4 h-4" />
+                        )}
+                        <span className="text-[10px] font-extrabold uppercase font-mono tracking-wider">
+                          Status: {detail.status} · {detail.blockchainStatus}
+                        </span>
+                      </div>
+                      <span className="text-[10px] font-mono font-semibold">
+                        {detail.settledAt ? `Settled: ${formatDate(detail.settledAt)}` : `Created: ${formatDate(detail.createdAt)}`}
+                      </span>
+                    </div>
+
+                    {detail.failureReason && (
+                      <div className="p-3 rounded-lg border border-red-500/30 bg-red-500/5 mb-6 text-[10px] font-mono text-red-300">
+                        <strong className="block mb-1 uppercase">Failure Reason</strong>
+                        {detail.failureReason}
+                      </div>
                     )}
-                    <span className="text-[10px] font-extrabold uppercase font-mono tracking-wider">
-                      Ledger Finality: {selectedTx.status}
-                    </span>
-                  </div>
-                  <span className="text-[10px] font-mono font-semibold">
-                    Settled: {formatDate(selectedTx.timestamp)}
-                  </span>
-                </div>
 
-                {/* Info block */}
-                <div className="space-y-4 mb-6">
-                  <h4 className="text-[9px] font-bold text-neutral-500 uppercase tracking-wider font-mono">
-                    Overview Details
-                  </h4>
-                  <div className="grid grid-cols-2 gap-4 bg-neutral-950 p-4 border border-neutral-900 rounded-lg text-xs font-mono">
-                    <div>
-                      <span className="text-neutral-500 text-[9px] block">AMOUNT</span>
-                      <span className="text-white font-bold">${selectedTx.amount.toFixed(2)} {selectedTx.currency}</span>
+                    <div className="space-y-4 mb-6">
+                      <h4 className="text-[9px] font-bold text-neutral-500 uppercase tracking-wider font-mono">
+                        Payment Details
+                      </h4>
+                      <div className="grid grid-cols-2 gap-4 bg-neutral-950 p-4 border border-neutral-900 rounded-lg text-xs font-mono">
+                        <div>
+                          <span className="text-neutral-500 text-[9px] block">AMOUNT</span>
+                          <span className="text-white font-bold">${(detail.amount / 100).toFixed(2)} {detail.currency}</span>
+                        </div>
+                        <div>
+                          <span className="text-neutral-500 text-[9px] block">PRODUCT</span>
+                          <span className="text-white font-bold truncate block">{detail.productName}</span>
+                        </div>
+                        <div>
+                          <span className="text-neutral-500 text-[9px] block">NETWORK</span>
+                          <span className="text-white font-bold">{detail.network}</span>
+                        </div>
+                        <div>
+                          <span className="text-neutral-500 text-[9px] block">FEE</span>
+                          <span className="text-white font-bold">${(detail.feeAmount / 100).toFixed(2)}</span>
+                        </div>
+                        <div>
+                          <span className="text-neutral-500 text-[9px] block">YOU RECEIVE</span>
+                          <span className="text-emerald-400 font-bold">${(detail.merchantAmount / 100).toFixed(2)}</span>
+                        </div>
+                        <div>
+                          <span className="text-neutral-500 text-[9px] block">CONFIRMATIONS</span>
+                          <span className="text-white font-bold">{detail.confirmations}</span>
+                        </div>
+                        <div className="col-span-2">
+                          <span className="text-neutral-500 text-[9px] block">CUSTOMER</span>
+                          <span className="text-white font-bold">{detail.buyerEmail || "—"}</span>
+                        </div>
+                      </div>
                     </div>
-                    <div>
-                      <span className="text-neutral-500 text-[9px] block">ROUTING NETWORK</span>
-                      <span className="text-white font-bold">{selectedTx.network}</span>
-                    </div>
-                    <div className="pt-2">
-                      <span className="text-neutral-500 text-[9px] block">GAS SPONSORSHIP</span>
-                      <span className="text-cyan-400 font-bold">100% Sponsored</span>
-                    </div>
-                    <div className="pt-2">
-                      <span className="text-neutral-500 text-[9px] block">CUSTOMER ACCOUNT</span>
-                      <span className="text-white font-bold truncate block max-w-[150px]">{selectedTx.customerEmail || "N/A"}</span>
-                    </div>
-                  </div>
-                </div>
 
-                {/* Blockchain Info */}
-                <div className="space-y-4 mb-6">
-                  <h4 className="text-[9px] font-bold text-neutral-500 uppercase tracking-wider font-mono flex items-center justify-between">
-                    <span>Ledger Metadata</span>
-                    <a
-                      href={`https://explorer.solana.com/tx/${selectedTx.txHash}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-indigo-400 hover:text-indigo-300 font-semibold flex items-center gap-1 hover:underline text-[9px]"
-                    >
-                      <span>Explorer Link</span>
-                      <ExternalLink className="w-2.5 h-2.5" />
-                    </a>
-                  </h4>
-                  <div className="space-y-2.5 bg-neutral-950 p-4 border border-neutral-900 rounded-lg text-[10px] font-mono">
-                    <div className="flex justify-between">
-                      <span className="text-neutral-500">TX Hash</span>
-                      <span className="text-neutral-300 truncate max-w-[240px] select-all font-semibold">{selectedTx.txHash || "0x0"}</span>
+                    <div className="space-y-4 mb-6">
+                      <h4 className="text-[9px] font-bold text-neutral-500 uppercase tracking-wider font-mono flex items-center justify-between">
+                        <span>Ledger Metadata</span>
+                        <a
+                          href={getExplorerUrl(detail.network, detail.txHash)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-indigo-400 hover:text-indigo-300 font-semibold flex items-center gap-1 hover:underline text-[9px]"
+                        >
+                          <span>Explorer</span>
+                          <ExternalLink className="w-2.5 h-2.5" />
+                        </a>
+                      </h4>
+                      <div className="space-y-2.5 bg-neutral-950 p-4 border border-neutral-900 rounded-lg text-[10px] font-mono">
+                        <div className="flex justify-between">
+                          <span className="text-neutral-500">TX Hash</span>
+                          <span className="text-neutral-300 truncate max-w-[280px] select-all font-semibold">{detail.txHash}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-neutral-500">Buyer Wallet</span>
+                          <span className="text-neutral-300 truncate max-w-[280px] select-all font-semibold">{detail.buyerAddress || "—"}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-neutral-500">Merchant Vault</span>
+                          <span className="text-neutral-300 truncate max-w-[280px] select-all font-semibold">{detail.merchantWalletAddress}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-neutral-500">Webhook</span>
+                          <span className="text-emerald-450 font-bold">
+                            {detail.webhookDelivered ? `Delivered (${detail.webhookDeliveryCount}×)` : "Pending"}
+                          </span>
+                        </div>
+                      </div>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-neutral-500">Sender Wallet</span>
-                      <span className="text-neutral-300 truncate max-w-[240px] select-all font-semibold">{selectedTx.senderAddress || "0x...abc"}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-neutral-500">Gas Cost (Sponsored)</span>
-                      <span className="text-emerald-450 font-bold">$0.00 (Sponsored by AirPay Relayer)</span>
-                    </div>
-                  </div>
-                </div>
 
-                {/* Webhook Stream logs */}
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center">
-                    <h4 className="text-[9px] font-bold text-neutral-500 uppercase tracking-wider font-mono flex items-center gap-1.5">
-                      <Terminal className="w-3.5 h-3.5 text-neutral-500" />
-                      <span>Webhook Log Stream</span>
-                    </h4>
-                    <span className="text-[8px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-450 font-bold uppercase tracking-wider">
-                      200 OK
-                    </span>
-                  </div>
+                    <div className="space-y-4">
+                      <div className="flex justify-between items-center">
+                        <h4 className="text-[9px] font-bold text-neutral-500 uppercase tracking-wider font-mono flex items-center gap-1.5">
+                          <Terminal className="w-3.5 h-3.5 text-neutral-500" />
+                          <span>Webhook Payload</span>
+                        </h4>
+                      </div>
 
-                  <div className="relative rounded-lg overflow-hidden border border-neutral-900 bg-black p-3.5 font-mono text-[9px] leading-relaxed text-neutral-350">
-                    <div className="absolute top-2 right-2">
-                      <Code className="w-3.5 h-3.5 text-neutral-700" />
+                      <div className="relative rounded-lg overflow-hidden border border-neutral-900 bg-black p-3.5 font-mono text-[9px] leading-relaxed text-neutral-350">
+                        <div className="absolute top-2 right-2">
+                          <Code className="w-3.5 h-3.5 text-neutral-700" />
+                        </div>
+                        <pre className="overflow-x-auto whitespace-pre">
+                          {getWebhookJson()}
+                        </pre>
+                      </div>
                     </div>
-                    <pre className="overflow-x-auto whitespace-pre">
-                      {getSimulatedWebhookJson(selectedTx)}
-                    </pre>
-                  </div>
-                </div>
-
+                  </>
+                )}
               </div>
 
               <div className="text-[8px] text-neutral-600 font-semibold leading-relaxed border-t border-neutral-900 pt-4 mt-6">
-                Securely signed with TLS 1.3 relays. Finality state updates are recorded in local memory vaults.
+                Live payment data from the AirPay ledger. Finality is recorded after on-chain confirmation.
               </div>
             </motion.div>
           </div>

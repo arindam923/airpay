@@ -1,14 +1,13 @@
 "use client"
 
-import React, { useState, useEffect } from "react"
+import React, { useState, useEffect, useCallback } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { 
   Cpu, LayoutDashboard, Coins, Key, Link2, 
-  Wallet2, LogOut, ShieldAlert, CpuIcon, CheckCircle2,
-  Menu, X, Sparkles, Activity, Bell, ShieldCheck
+  Wallet2, LogOut, ShieldAlert, CheckCircle2,
+  Menu, X, Activity
 } from "lucide-react"
 
-// Components imports
 import { useAuth } from "@/components/AuthProvider"
 import { authClient } from "@/lib/auth-client"
 import OverviewTab from "@/components/console/OverviewTab"
@@ -17,16 +16,19 @@ import ApiKeysTab from "@/components/console/ApiKeysTab"
 import CheckoutTab from "@/components/console/CheckoutTab"
 import SettlementsTab from "@/components/console/SettlementsTab"
 
-interface Transaction {
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8787"
+
+export interface ConsoleTransaction {
   id: string
   amount: number
   currency: string
   network: string
-  timestamp: Date | string
+  timestamp: string
   status: "pending" | "success" | "failed"
   customerEmail?: string
   txHash?: string
   senderAddress?: string
+  productName?: string
 }
 
 type TabType = "overview" | "payments" | "keys" | "checkout" | "settlements"
@@ -38,88 +40,102 @@ export default function ConsolePage() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [sandboxBypass, setSandboxBypass] = useState(false)
 
-  // Local storage synced mock transaction state
-  const [transactions, setTransactions] = useState<Transaction[]>([])
-  
-  // Custom Toast notifications
+  const [transactions, setTransactions] = useState<ConsoleTransaction[]>([])
+  const [isLoadingPayments, setIsLoadingPayments] = useState(false)
+  const [paymentsError, setPaymentsError] = useState<string | null>(null)
+  const [refreshTick, setRefreshTick] = useState(0)
+
   const [toasts, setToasts] = useState<Array<{ id: string; message: string; type: string }>>([])
 
-  // Load transactions from localStorage or initialize with mock data
-  useEffect(() => {
-    const saved = localStorage.getItem("airpay_console_transactions")
-    if (saved) {
-      try {
-        setTransactions(JSON.parse(saved))
-      } catch (e) {
-        initMockData()
-      }
-    } else {
-      initMockData()
-    }
-  }, [])
+  const isAuthed = !!user || sandboxBypass
 
-  const initMockData = () => {
-    const defaultTxs: Transaction[] = [
-      { id: "tx_901", amount: 450, currency: "USDC", network: "Solana", timestamp: new Date(Date.now() - 3600000 * 2), status: "success", customerEmail: "alicia@phantom.me", txHash: "4kF92JkKsa81HskWpP8J2K3S9aHskq12", senderAddress: "8x4KjJda923HskKsJ28skaKsaP2J83skKlsHskW1" },
-      { id: "tx_902", amount: 125, currency: "USDT", network: "Arbitrum", timestamp: new Date(Date.now() - 3600000 * 1.5), status: "success", customerEmail: "bob@metamask.io", txHash: "0x8fa9238bcde2e93b118bfa92381eefc23", senderAddress: "0x71C7656EC7ab88b098defB751B7401B5f6d8976F" },
-      { id: "tx_903", amount: 80, currency: "EURC", network: "Polygon", timestamp: new Date(Date.now() - 3600000 * 0.8), status: "success", customerEmail: "charlie@ledger.xyz", txHash: "0xb7d3a2e92c8d5j3s1m5d6f8g9h2jk1s9a2k8d5j", senderAddress: "0x71C7656EC7ab88b098defB751B7401B5f6d8976F" },
-      { id: "tx_904", amount: 1200, currency: "USDC", network: "Ethereum", timestamp: new Date(Date.now() - 3600000 * 0.4), status: "success", customerEmail: "daisy@coinbase.com", txHash: "0x9ef23c8dfa891e4a3b8d91c28b7e4f2a3cde5f6a", senderAddress: "0x71C7656EC7ab88b098defB751B7401B5f6d8976F" },
-      { id: "tx_905", amount: 250, currency: "USDC", network: "Solana", timestamp: new Date(Date.now() - 3600000 * 0.1), status: "success", customerEmail: "ethan@solflare.org", txHash: "5jK3hSkW2kF92JkKsa81HskWpP8J2K3S9aHskq12", senderAddress: "8x4KjJda923HskKsJ28skaKsaP2J83skKlsHskW1" }
-    ]
-    setTransactions(defaultTxs)
-    localStorage.setItem("airpay_console_transactions", JSON.stringify(defaultTxs))
+  const fetchPayments = useCallback(async () => {
+    if (!isAuthed) return
+    setIsLoadingPayments(true)
+    setPaymentsError(null)
+    try {
+      const res = await fetch(`${API_URL}/api/merchant/payments?limit=200`, {
+        credentials: "include",
+      })
+      if (!res.ok) {
+        setPaymentsError(`Failed to load payments (${res.status})`)
+        setTransactions([])
+        return
+      }
+      const data = await res.json()
+      const mapped: ConsoleTransaction[] = (data.payments || []).map((p: any) => ({
+        id: p.id,
+        amount: p.amount,
+        currency: p.currency,
+        network: p.network,
+        timestamp: p.createdAt,
+        status:
+          p.status === "completed" || p.status === "settled"
+            ? "success"
+          : p.status === "failed"
+            ? "failed"
+            : "pending",
+        customerEmail: p.buyerEmail,
+        txHash: p.txHash,
+        senderAddress: p.buyerAddress,
+        productName: p.productName,
+      }))
+      setTransactions(mapped)
+    } catch (err) {
+      setPaymentsError(err instanceof Error ? err.message : "Network error")
+      setTransactions([])
+    } finally {
+      setIsLoadingPayments(false)
+    }
+  }, [isAuthed])
+
+  const fetchSandboxMode = useCallback(async () => {
+    if (!isAuthed) return
+    try {
+      const res = await fetch(`${API_URL}/api/merchant/sandbox-mode`, {
+        credentials: "include",
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setIsLiveMode(!data.sandboxMode)
+      }
+    } catch {}
+  }, [isAuthed])
+
+  useEffect(() => {
+    if (!isAuthed) return
+    void refreshTick
+    fetchPayments()
+    fetchSandboxMode()
+  }, [isAuthed, refreshTick, fetchPayments, fetchSandboxMode])
+
+  const handleModeSwitch = async (live: boolean) => {
+    setIsLiveMode(live)
+    if (!isAuthed) {
+      addToast(live ? "Switched to Production." : "Switched to Sandbox.", "success")
+      return
+    }
+    try {
+      await fetch(`${API_URL}/api/merchant/sandbox-mode`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ sandboxMode: !live }),
+      })
+    } catch {}
+    addToast(live ? "Switched to Production environment." : "Switched to Sandbox environment.", "success")
   }
 
-  // Toast Helpers
   const addToast = (message: string, type = "success") => {
     const id = "toast_" + Math.random().toString(36).substring(2, 9)
     setToasts((prev) => [...prev, { id, message, type }])
-    setTimeout(() => {
-      removeToast(id)
-    }, 4500)
+    setTimeout(() => removeToast(id), 4500)
   }
 
   const removeToast = (id: string) => {
     setToasts((prev) => prev.filter((toast) => toast.id !== id))
   }
 
-  // Simulate payment callback handler
-  const handleSimulatePayment = (
-    amount: number, 
-    currency: string, 
-    network: string, 
-    status: "success" | "failed", 
-    email: string
-  ) => {
-    const randomHex = Math.random().toString(16).substring(2, 14)
-    const randomTxHash = network === "Solana" 
-      ? `5jK${randomHex}WpP8J2K3S` 
-      : `0x${randomHex}eefc23b8fa923`
-
-    const newTx: Transaction = {
-      id: "tx_" + Math.random().toString(36).substring(2, 7),
-      amount,
-      currency,
-      network,
-      timestamp: new Date(),
-      status,
-      customerEmail: email,
-      txHash: randomTxHash,
-      senderAddress: network === "Solana" ? "sol...8x9d2s" : "0x71...8976F"
-    }
-
-    const updated = [...transactions, newTx]
-    setTransactions(updated)
-    localStorage.setItem("airpay_console_transactions", JSON.stringify(updated))
-
-    if (status === "success") {
-      addToast(`Simulated Payment Succeeded: $${amount.toFixed(2)} ${currency} received on ${network}!`)
-    } else {
-      addToast(`Simulated Payment Rejected: $${amount.toFixed(2)} ${currency} failed on ${network}.`, "error")
-    }
-  }
-
-  // Session verification block
   if (loading) {
     return (
       <div className="min-h-screen bg-black flex flex-col items-center justify-center space-y-4">
@@ -134,7 +150,6 @@ export default function ConsolePage() {
     )
   }
 
-  // If user is not authenticated and they haven't chosen to bypass using sandbox mode
   if (!user && !sandboxBypass) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center px-4 relative overflow-hidden">
@@ -174,6 +189,7 @@ export default function ConsolePage() {
 
             <button
               onClick={() => setSandboxBypass(true)}
+              type="button"
               className="w-full py-2.5 bg-neutral-950 hover:bg-neutral-900 border border-neutral-900 hover:border-neutral-800 text-neutral-350 text-xs font-bold rounded transition-colors"
             >
               Enter Sandbox Mode (Bypass Auth)
@@ -184,13 +200,11 @@ export default function ConsolePage() {
     )
   }
 
-  // Active user representation (real or mock fallback)
   const activeUser = user || {
     email: "sandbox-developer@airpay.io",
     name: "Sandbox Developer"
   }
 
-  // Sidebar menus
   const sidebarItems = [
     { id: "overview", label: "Overview", icon: LayoutDashboard },
     { id: "payments", label: "Payments Ledger", icon: Coins },
@@ -203,7 +217,6 @@ export default function ConsolePage() {
     <div className={`min-h-screen bg-black text-slate-100 flex flex-col md:flex-row font-sans selection:bg-indigo-500/30 selection:text-indigo-200 ${
       isLiveMode ? "theme-live" : "theme-sandbox"
     }`}>
-      {/* Global Toast Floating Portal */}
       <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-3 w-full max-w-sm pointer-events-none">
         <AnimatePresence>
           {toasts.map((toast) => (
@@ -233,6 +246,7 @@ export default function ConsolePage() {
               </div>
               <button
                 onClick={() => removeToast(toast.id)}
+                type="button"
                 className="p-1 text-slate-500 hover:text-white rounded-lg hover:bg-slate-800/80 transition-colors shrink-0"
               >
                 <X className="w-3.5 h-3.5" />
@@ -242,11 +256,9 @@ export default function ConsolePage() {
         </AnimatePresence>
       </div>
 
-      {/* Sidebar Navigation */}
       <aside className="w-full md:w-64 border-b md:border-b-0 md:border-r border-neutral-900 bg-neutral-950/20 shrink-0 flex flex-col justify-between p-5 md:h-screen md:sticky md:top-0 z-40">
         
         <div className="space-y-8">
-          {/* Logo */}
           <div className="flex items-center justify-between">
             <a href="/" className="flex items-center gap-2.5 group">
               <div className="flex items-center justify-center w-8 h-8 rounded bg-neutral-950 border border-neutral-850">
@@ -257,16 +269,15 @@ export default function ConsolePage() {
               </span>
             </a>
             
-            {/* Mobile menu toggle */}
             <button 
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+              type="button"
               className="md:hidden p-1.5 text-neutral-450 hover:text-white transition-colors"
             >
               {isMobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
             </button>
           </div>
 
-          {/* Sandbox vs Live mode switch toggle */}
           <div className="p-3 bg-neutral-950 border border-neutral-900 rounded-lg space-y-2.5">
             <div className="flex justify-between items-center text-[9px] font-mono font-bold text-neutral-500">
               <span>ENVIRONMENT STATE</span>
@@ -275,13 +286,10 @@ export default function ConsolePage() {
               </span>
             </div>
             
-            {/* Slider Switch */}
             <div className="flex bg-black border border-neutral-900 rounded p-0.5 relative">
               <button 
-                onClick={() => {
-                  setIsLiveMode(false)
-                  addToast("Switched to Sandbox developer testing environment.")
-                }}
+                onClick={() => handleModeSwitch(false)}
+                type="button"
                 className={`flex-1 py-1 text-[8px] font-mono uppercase tracking-wider font-bold rounded z-10 transition-colors ${
                   !isLiveMode ? "text-white" : "text-neutral-500 hover:text-neutral-300"
                 }`}
@@ -289,10 +297,8 @@ export default function ConsolePage() {
                 Sandbox
               </button>
               <button 
-                onClick={() => {
-                  setIsLiveMode(true)
-                  addToast("Switched to Production environment. Live credentials loaded.", "success")
-                }}
+                onClick={() => handleModeSwitch(true)}
+                type="button"
                 className={`flex-1 py-1 text-[8px] font-mono uppercase tracking-wider font-bold rounded z-10 transition-colors ${
                   isLiveMode ? "text-white" : "text-neutral-500 hover:text-neutral-300"
                 }`}
@@ -300,7 +306,6 @@ export default function ConsolePage() {
                 Production
               </button>
               
-              {/* Highlight background slider */}
               <motion.div 
                 className={`absolute top-0.5 bottom-0.5 rounded ${
                   isLiveMode ? "bg-emerald-600/20 border border-emerald-500/30" : "bg-indigo-600/20 border border-indigo-500/30"
@@ -312,7 +317,6 @@ export default function ConsolePage() {
             </div>
           </div>
 
-          {/* Navigation Links */}
           <nav className={`md:flex flex-col gap-1.5 ${isMobileMenuOpen ? "flex" : "hidden md:flex"}`}>
             {sidebarItems.map(item => {
               const Icon = item.icon
@@ -324,6 +328,7 @@ export default function ConsolePage() {
                     setActiveTab(item.id)
                     setIsMobileMenuOpen(false)
                   }}
+                  type="button"
                   className={`w-full flex items-center gap-3 px-3 py-2 rounded text-[10px] uppercase font-mono tracking-wider font-bold transition-all border ${
                     isActive 
                       ? isLiveMode 
@@ -344,7 +349,6 @@ export default function ConsolePage() {
           </nav>
         </div>
 
-        {/* Footer info (User card) */}
         <div className={`pt-4 border-t border-neutral-900 mt-6 md:flex flex-col gap-3 ${isMobileMenuOpen ? "flex" : "hidden md:flex"}`}>
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-full bg-neutral-900 border border-neutral-850 flex items-center justify-center text-[10px] text-indigo-400 font-mono font-bold">
@@ -364,6 +368,7 @@ export default function ConsolePage() {
                 setSandboxBypass(false)
               }
             }}
+            type="button"
             className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-neutral-950 hover:bg-neutral-900 border border-neutral-900 hover:border-neutral-800 text-neutral-400 hover:text-white rounded text-[9px] font-mono font-bold transition-colors"
           >
             <LogOut className="w-3 h-3 text-neutral-550" />
@@ -373,10 +378,8 @@ export default function ConsolePage() {
 
       </aside>
 
-      {/* Main Panel Content Stage */}
       <main className="flex-1 p-6 md:p-8 space-y-8 overflow-y-auto max-h-screen">
         
-        {/* Dynamic Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 border-b border-neutral-900 gap-4">
           <div>
             <h1 className="text-2xl font-extrabold text-white tracking-tight uppercase font-mono">
@@ -390,13 +393,21 @@ export default function ConsolePage() {
               {activeTab === "overview" && "Analytical hub for stablecoin settlement rates and velocity streams."}
               {activeTab === "payments" && "Detailed transaction record database and real-time event broadcaster."}
               {activeTab === "keys" && "Configure client secret credentials, webhooks events, and code playgrounds."}
-              {activeTab === "checkout" && "Generate Hosted Checkout Links and simulate live mobile transactions."}
-              {activeTab === "settlements" && "Manage multi-chain wallet vault receivers and gasrelayer properties."}
+              {activeTab === "checkout" && "Generate Hosted Checkout Links and review recent payment sessions."}
+              {activeTab === "settlements" && "Manage multi-chain wallet vault receivers and gas relayer properties."}
             </p>
           </div>
 
-          {/* Quick Environment status node */}
           <div className="flex items-center gap-2 self-start sm:self-center">
+            <button
+              onClick={() => setRefreshTick(t => t + 1)}
+              type="button"
+              className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-neutral-950 border border-neutral-900 hover:border-neutral-800 text-[9px] font-mono text-neutral-400 hover:text-white font-bold uppercase select-none transition-colors"
+              title="Refresh data"
+            >
+              <Activity className="w-3 h-3" />
+              <span>Refresh</span>
+            </button>
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-neutral-950 border border-neutral-900 text-[9px] font-mono text-neutral-400 font-bold uppercase select-none">
               <span className={`w-1.5 h-1.5 rounded-full ${
                 isLiveMode ? "bg-emerald-500 glow-emerald" : "bg-indigo-500 glow-indigo animate-pulse"
@@ -406,7 +417,12 @@ export default function ConsolePage() {
           </div>
         </div>
 
-        {/* Tab Router Switch Panels */}
+        {paymentsError && (
+          <div className="px-4 py-2.5 rounded-lg border border-amber-500/30 bg-amber-500/5 text-[10px] font-mono text-amber-300">
+            {paymentsError}
+          </div>
+        )}
+
         <div className="relative">
           <AnimatePresence mode="wait">
             <motion.div
@@ -419,13 +435,15 @@ export default function ConsolePage() {
               {activeTab === "overview" && (
                 <OverviewTab 
                   transactions={transactions} 
-                  isLiveMode={isLiveMode} 
+                  isLiveMode={isLiveMode}
+                  isLoading={isLoadingPayments}
                 />
               )}
               {activeTab === "payments" && (
                 <PaymentsTab 
                   transactions={transactions} 
-                  onSimulatePayment={handleSimulatePayment} 
+                  isLoading={isLoadingPayments}
+                  onRefresh={() => setRefreshTick(t => t + 1)}
                 />
               )}
               {activeTab === "keys" && (
@@ -434,7 +452,9 @@ export default function ConsolePage() {
                 />
               )}
               {activeTab === "checkout" && (
-                <CheckoutTab />
+                <CheckoutTab 
+                  onRefresh={() => setRefreshTick(t => t + 1)}
+                />
               )}
               {activeTab === "settlements" && (
                 <SettlementsTab />
