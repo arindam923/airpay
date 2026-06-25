@@ -126,7 +126,7 @@ function CheckoutPageInner() {
     setStep("pay")
 
     try {
-      const txHash = await sendTransaction({
+      const { txHash, feeTxHash } = await sendTransaction({
         network: session.network as NetworkType,
         currency: session.currency,
         merchantWallet: session.merchantWalletAddress,
@@ -144,6 +144,7 @@ function CheckoutPageInner() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           txHash,
+          feeTxHash,
           buyerAddress: walletAddress,
           signature: txHash,
           buyerEmail: session.collectEmail ? buyerEmail : undefined,

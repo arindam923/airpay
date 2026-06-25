@@ -7,10 +7,11 @@
     "build": "wrangler deploy --dry-run --outdir dist",
     "deploy": "wrangler deploy",
     "type-check": "tsc --noEmit",
+    "test": "vitest run",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit push",
-    "db:migrate:local": "for f in drizzle/0000_simple_crystal.sql drizzle/0001_ancient_shadowcat.sql drizzle/0002_low_sharon_carter.sql drizzle/0003_complete_schema.sql drizzle/0004_remove_company_wallet.sql drizzle/0005_console_dynamic.sql; do wrangler d1 execute airpay-db --file=./$f; done",
-    "db:migrate:remote": "for f in drizzle/0000_simple_crystal.sql drizzle/0001_ancient_shadowcat.sql drizzle/0002_low_sharon_carter.sql drizzle/0003_complete_schema.sql drizzle/0004_remove_company_wallet.sql drizzle/0005_console_dynamic.sql; do wrangler d1 execute airpay-db --file=./$f --remote; done"
+    "db:migrate:local": "for f in drizzle/0000_simple_crystal.sql drizzle/0001_ancient_shadowcat.sql drizzle/0002_low_sharon_carter.sql drizzle/0003_complete_schema.sql drizzle/0004_remove_company_wallet.sql drizzle/0005_console_dynamic.sql drizzle/0006_simplify_settlements.sql drizzle/0007_payment_unique_checkout_tx.sql drizzle/0008_idempotency_keys.sql drizzle/0009_payment_fee_tx_hash.sql; do wrangler d1 execute airpay-db --file=./$f; done",
+    "db:migrate:remote": "for f in drizzle/0000_simple_crystal.sql drizzle/0001_ancient_shadowcat.sql drizzle/0002_low_sharon_carter.sql drizzle/0003_complete_schema.sql drizzle/0004_remove_company_wallet.sql drizzle/0005_console_dynamic.sql drizzle/0006_simplify_settlements.sql drizzle/0007_payment_unique_checkout_tx.sql drizzle/0008_idempotency_keys.sql drizzle/0009_payment_fee_tx_hash.sql; do wrangler d1 execute airpay-db --file=./$f --remote; done"
   },
   "dependencies": {
     "@better-auth/drizzle-adapter": "^1.6.14",
@@ -21,9 +22,11 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.16.19",
     "@cloudflare/workers-types": "^4.20250417.0",
     "drizzle-kit": "^0.31.10",
     "typescript": "^5.7.3",
+    "vitest": "^4.1.9",
     "wrangler": "^4.14.0"
   }
 }

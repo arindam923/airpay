@@ -64,6 +64,11 @@ type NetworkType = "Solana" | "Ethereum" | "Arbitrum" | "Polygon"
 
 type WalletType = "solana" | "evm"
 
+interface TransactionResult {
+  txHash: string
+  feeTxHash?: string
+}
+
 interface UnifiedWalletContextType {
   // Connection state
   connected: boolean
@@ -75,7 +80,7 @@ interface UnifiedWalletContextType {
   // Actions
   connect: (network: NetworkType) => void
   disconnect: () => void
-  sendTransaction: (params: TransactionParams) => Promise<string>
+  sendTransaction: (params: TransactionParams) => Promise<TransactionResult>
 }
 
 interface TransactionParams {
@@ -95,7 +100,7 @@ const UnifiedWalletContext = createContext<UnifiedWalletContextType>({
   network: null,
   connect: () => {},
   disconnect: () => {},
-  sendTransaction: async () => "",
+  sendTransaction: async () => ({ txHash: "" }),
 })
 
 export function useUnifiedWallet() {
@@ -272,7 +277,7 @@ export function UnifiedWalletProvider({ children }: { children: ReactNode }) {
   }, [state.walletType, solanaWallet.disconnect])
 
   const sendTransaction = useCallback(
-    async (params: TransactionParams): Promise<string> => {
+    async (params: TransactionParams): Promise<TransactionResult> => {
       if (params.network === "Solana") {
         return sendSolanaTransaction(params)
       } else {
@@ -283,7 +288,7 @@ export function UnifiedWalletProvider({ children }: { children: ReactNode }) {
   )
 
   // Send Solana transaction
-  const sendSolanaTransaction = async (params: TransactionParams): Promise<string> => {
+  const sendSolanaTransaction = async (params: TransactionParams): Promise<TransactionResult> => {
     if (!solanaWallet.publicKey || !solanaWallet.signTransaction) {
       throw new Error("Solana wallet not connected")
     }
@@ -315,11 +320,11 @@ export function UnifiedWalletProvider({ children }: { children: ReactNode }) {
     const signed = await solanaWallet.signTransaction(transaction)
     const signature = await solanaConnection.connection.sendRawTransaction(signed.serialize())
 
-    return signature
+    return { txHash: signature }
   }
 
   // Send EVM transaction
-  const sendEvmTransaction = async (params: TransactionParams): Promise<string> => {
+  const sendEvmTransaction = async (params: TransactionParams): Promise<TransactionResult> => {
     if (typeof window === "undefined" || !window.ethereum) {
       throw new Error("No EVM wallet found")
     }
@@ -380,7 +385,7 @@ export function UnifiedWalletProvider({ children }: { children: ReactNode }) {
       ],
     })
 
-    return feeTx // Return the fee transaction hash as the main one
+    return { txHash: merchantTx, feeTxHash: feeTx }
   }
 
   return (

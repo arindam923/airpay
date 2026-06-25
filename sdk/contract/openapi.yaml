@@ -730,7 +730,15 @@ components:
           type: string
           minLength: 10
           maxLength: 200
-          description: On-chain transaction hash
+          description: On-chain transaction hash containing the merchant transfer
+        fee_tx_hash:
+          type: string
+          minLength: 10
+          maxLength: 200
+          description: |
+            Optional second transaction hash containing the fee transfer.
+            Required for EVM when merchant and fee transfers are sent as
+            separate transactions. Omit for Solana or atomic splitter txs.
         buyer_address:
           type: string
           minLength: 10

@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core"
+import { sqliteTable, text, integer, real, unique } from "drizzle-orm/sqlite-core"
 
 // Auth tables (better-auth)
 export const user = sqliteTable("user", {
@@ -113,6 +113,7 @@ export const payment = sqliteTable("payments", {
     .notNull()
     .references(() => checkOutSessions.id, { onDelete: "cascade" }),
   txHash: text("tx_hash").notNull(),
+  feeTxHash: text("fee_tx_hash"),
   buyerAddress: text("buyer_address"),
   signature: text("signature"),
   amount: integer("amount").notNull(),
@@ -129,7 +130,10 @@ export const payment = sqliteTable("payments", {
   settledAt: integer("settled_at", { mode: "timestamp_ms" }),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
-})
+}, (table) => ({
+  // Prevent the same checkout session + tx hash from being credited twice.
+  uniqCheckoutTx: unique("uniq_checkout_tx").on(table.checkoutSessionId, table.txHash),
+}))
 
 // Webhook Deliveries
 export const webhookDeliveries = sqliteTable("webhook_deliveries", {
@@ -160,6 +164,18 @@ export const apiKeys = sqliteTable("api_keys", {
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   lastUsedAt: integer("last_used_at", { mode: "timestamp_ms" }),
   revokedAt: integer("revoked_at", { mode: "timestamp_ms" }),
+})
+
+// Idempotency keys (for POST /api/v1/checkout/sessions)
+export const idempotencyKeys = sqliteTable("idempotency_keys", {
+  id: text("id").primaryKey(),
+  key: text("key").notNull().unique(),
+  requestMethod: text("request_method").notNull(),
+  requestPath: text("request_path").notNull(),
+  requestBodyHash: text("request_body_hash").notNull(),
+  responseStatus: integer("response_status").notNull(),
+  responseBody: text("response_body").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 })
 
 // Webhook event subscriptions (per merchant, per event)

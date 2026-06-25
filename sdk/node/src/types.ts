@@ -125,6 +125,7 @@ export interface CreateCheckoutSessionParams {
 
 export interface ConfirmPaymentParams {
   tx_hash: string
+  fee_tx_hash?: string
   buyer_address: string
   signature: string
   buyer_email?: string

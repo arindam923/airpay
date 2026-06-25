@@ -1,20 +1,13 @@
 import { eq, and, lte } from "drizzle-orm"
 import { getDB } from "./db"
 import * as schema from "./db/schema"
+import { verifyPaymentTransaction } from "./blockchain/verify"
 
 // Cron handler for blockchain verification
 // This runs every minute to check pending transactions
 
 const MAX_RETRIES = 10
 const RETRY_DELAYS = [60, 120, 240, 480, 960, 1800, 3600, 7200, 14400, 28800] // seconds
-
-// RPC endpoints
-const RPC_ENDPOINTS: Record<string, string> = {
-  Solana: "https://api.mainnet-beta.solana.com",
-  Ethereum: "https://eth.llamarpc.com",
-  Arbitrum: "https://arb1.arbitrum.io/rpc",
-  Polygon: "https://polygon.llamarpc.com",
-}
 
 export async function handleBlockchainVerification(c: any) {
   const db = getDB(c.env.DB)
@@ -41,10 +34,23 @@ export async function handleBlockchainVerification(c: any) {
         .where(eq(schema.checkOutSessions.id, payment.checkoutSessionId))
         .limit(1)
 
-      const network = session[0]?.network || "Solana"
-      const verified = await verifyTransaction(payment, network, c.env)
+      if (!session || session.length === 0) {
+        // Orphan payment — mark failed so we stop retrying
+        await db
+          .update(schema.payment)
+          .set({
+            blockchainStatus: "failed",
+            status: "failed",
+            failureReason: "Checkout session not found",
+            updatedAt: new Date(now),
+          })
+          .where(eq(schema.payment.id, payment.id))
+        continue
+      }
 
-      if (verified.success) {
+      const verified = await verifyPaymentTransaction(payment, session[0], c.env)
+
+      if (verified.valid) {
         // Update payment as confirmed
         await db
           .update(schema.payment)
@@ -58,16 +64,14 @@ export async function handleBlockchainVerification(c: any) {
           .where(eq(schema.payment.id, payment.id))
 
         // Get merchant profile for webhook
-        if (session && session.length > 0) {
-          const profile = await db
-            .select()
-            .from(schema.merchantProfiles)
-            .where(eq(schema.merchantProfiles.id, session[0].merchantProfileId))
-            .limit(1)
+        const profile = await db
+          .select()
+          .from(schema.merchantProfiles)
+          .where(eq(schema.merchantProfiles.id, session[0].merchantProfileId))
+          .limit(1)
 
-          if (profile && profile.length > 0 && profile[0].webhookUrl) {
-            await sendWebhook(profile[0], payment, session[0], "payment.confirmed", c.env)
-          }
+        if (profile && profile.length > 0 && profile[0].webhookUrl) {
+          await sendWebhook(profile[0], payment, session[0], "payment.confirmed", c.env)
         }
       } else if (verified.failed) {
         // Transaction failed on blockchain
@@ -82,16 +86,14 @@ export async function handleBlockchainVerification(c: any) {
           .where(eq(schema.payment.id, payment.id))
 
         // Send webhook for failed payment
-        if (session && session.length > 0) {
-          const profile = await db
-            .select()
-            .from(schema.merchantProfiles)
-            .where(eq(schema.merchantProfiles.id, session[0].merchantProfileId))
-            .limit(1)
+        const profile = await db
+          .select()
+          .from(schema.merchantProfiles)
+          .where(eq(schema.merchantProfiles.id, session[0].merchantProfileId))
+          .limit(1)
 
-          if (profile && profile.length > 0 && profile[0].webhookUrl) {
-            await sendWebhook(profile[0], payment, session[0], "payment.failed", c.env)
-          }
+        if (profile && profile.length > 0 && profile[0].webhookUrl) {
+          await sendWebhook(profile[0], payment, session[0], "payment.failed", c.env)
         }
       } else {
         // Not yet confirmed, schedule retry
@@ -140,108 +142,6 @@ export async function handleBlockchainVerification(c: any) {
   }
 
   return { processed: pendingPayments.length }
-}
-
-async function verifyTransaction(payment: any, network: string, env: any) {
-  try {
-    const rpcUrl = RPC_ENDPOINTS[network] || RPC_ENDPOINTS.Solana
-
-    if (network === "Solana") {
-      return await verifySolanaTransaction(payment, rpcUrl)
-    } else {
-      return await verifyEvmTransaction(payment, rpcUrl, network)
-    }
-  } catch (err) {
-    console.error(`Verification error for ${network}:`, err)
-    return { success: false, failed: false, confirmations: 0, reason: null }
-  }
-}
-
-async function verifySolanaTransaction(payment: any, rpcUrl: string) {
-  try {
-    const response = await fetch(rpcUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "getTransaction",
-        params: [payment.txHash, "json"],
-      }),
-    })
-
-    const data: any = await response.json()
-
-    if (data?.result && data?.result?.meta && data?.result?.meta?.err === null) {
-      // Transaction confirmed
-      const confirmations = data?.result?.meta?.confirmations || 1
-      return { success: true, confirmations, failed: false, reason: null }
-    } else if (data?.result && data?.result?.meta && data?.result?.meta?.err !== null) {
-      // Transaction failed
-      return { success: false, failed: true, confirmations: 0, reason: "Transaction error on Solana" }
-    }
-
-    return { success: false, failed: false, confirmations: 0, reason: null }
-  } catch (err) {
-    console.error("Solana verification error:", err)
-    return { success: false, failed: false, confirmations: 0, reason: null }
-  }
-}
-
-async function verifyEvmTransaction(payment: any, rpcUrl: string, network: string) {
-  try {
-    const response = await fetch(rpcUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "eth_getTransactionReceipt",
-        params: [payment.txHash],
-      }),
-    })
-
-    const data: any = await response.json()
-
-    if (data?.result && data?.result?.blockHash) {
-      // Transaction is mined
-      if (data?.result?.status === "0x1") {
-        // Success
-        const blockNumber = parseInt(data?.result?.blockNumber, 16)
-        const confirmations = await getEvmConfirmations(rpcUrl, blockNumber)
-        return { success: true, confirmations, failed: false, reason: null }
-      } else {
-        // Failed
-        return { success: false, failed: true, confirmations: 0, reason: "Transaction failed on EVM" }
-      }
-    }
-
-    return { success: false, failed: false, confirmations: 0, reason: null }
-  } catch (err) {
-    console.error("EVM verification error:", err)
-    return { success: false, failed: false, confirmations: 0, reason: null }
-  }
-}
-
-async function getEvmConfirmations(rpcUrl: string, txBlockNumber: number) {
-  try {
-    const response = await fetch(rpcUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "eth_blockNumber",
-        params: [],
-      }),
-    })
-
-    const data: any = await response.json()
-    const currentBlock = parseInt(data?.result, 16)
-    return Math.max(0, currentBlock - txBlockNumber)
-  } catch (err) {
-    return 1
-  }
 }
 
 async function sendWebhook(

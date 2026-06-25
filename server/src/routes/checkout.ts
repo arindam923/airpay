@@ -6,6 +6,7 @@ import { getDB } from "../db"
 import * as schema from "../db/schema"
 import type { Env } from "../index"
 import { createAuth } from "../auth"
+import { rateLimit, clientIp } from "../middleware/rateLimit"
 
 const checkoutApp = new Hono<Env>()
 
@@ -130,7 +131,9 @@ checkoutApp.post("/", zValidator("json", createSchema), async (c) => {
 })
 
 // GET /api/checkout/:id — fetch session details (public, no auth required)
-checkoutApp.get("/:id", async (c) => {
+checkoutApp.get("/:id",
+  rateLimit({ limit: 60, windowSeconds: 60, keyFn: (c) => `checkout-session-get:${clientIp(c)}:${c.req.param("id")}` }),
+  async (c) => {
   const id = c.req.param("id")
   const db = getDB(c.env.DB)
 
@@ -179,40 +182,37 @@ checkoutApp.get("/:id", async (c) => {
 // POST /api/checkout/:id/confirm — confirm payment (public)
 const confirmSchema = z.object({
   txHash: z.string().min(10).max(200),
+  feeTxHash: z.string().min(10).max(200).optional(),
   buyerAddress: z.string().min(10).max(100),
   signature: z.string().min(1).max(500),
   buyerEmail: z.string().email().optional(),
 })
 
-checkoutApp.post("/:id/confirm", zValidator("json", confirmSchema), async (c) => {
+checkoutApp.post("/:id/confirm",
+  rateLimit({ limit: 10, windowSeconds: 60, keyFn: (c) => `checkout-confirm:${clientIp(c)}:${c.req.param("id")}` }),
+  zValidator("json", confirmSchema),
+  async (c) => {
   const id = c.req.param("id")
   const db = getDB(c.env.DB)
-
-  const session = await db
-    .select()
-    .from(schema.checkOutSessions)
-    .where(eq(schema.checkOutSessions.id, id))
-    .limit(1)
-
-  if (!session || session.length === 0) {
-    return c.json({ error: "Checkout session not found" }, 404)
-  }
-
-  const s = session[0]
-
-  if (s.expiresAt.getTime() < Date.now()) {
-    return c.json({ error: "Checkout session expired" }, 410)
-  }
-
-  if (s.status !== "pending") {
-    return c.json({ error: "Checkout session already processed" }, 409)
-  }
-
   const body = c.req.valid("json")
   const now = Date.now()
 
-  // Update checkout session
-  await db
+  // Idempotency: if this exact session + tx hash was already submitted, return it.
+  const existingPayments = await db
+    .select({ id: schema.payment.id })
+    .from(schema.payment)
+    .where(and(
+      eq(schema.payment.checkoutSessionId, id),
+      eq(schema.payment.txHash, body.txHash),
+    ))
+    .limit(1)
+
+  if (existingPayments && existingPayments.length > 0) {
+    return c.json({ error: "Payment already recorded for this transaction", paymentId: existingPayments[0].id }, 409)
+  }
+
+  // Atomic session reservation: only mark completed if still pending.
+  const updatedSessions = await db
     .update(schema.checkOutSessions)
     .set({
       status: "completed",
@@ -221,27 +221,66 @@ checkoutApp.post("/:id/confirm", zValidator("json", confirmSchema), async (c) =>
       buyerEmail: body.buyerEmail ?? null,
       updatedAt: new Date(now),
     })
-    .where(eq(schema.checkOutSessions.id, id))
+    .where(and(
+      eq(schema.checkOutSessions.id, id),
+      eq(schema.checkOutSessions.status, "pending"),
+    ))
+    .returning()
 
-  // Create payment record
+  if (!updatedSessions || updatedSessions.length === 0) {
+    const sessionRows = await db
+      .select({ status: schema.checkOutSessions.status, expiresAt: schema.checkOutSessions.expiresAt })
+      .from(schema.checkOutSessions)
+      .where(eq(schema.checkOutSessions.id, id))
+      .limit(1)
+
+    if (!sessionRows || sessionRows.length === 0) {
+      return c.json({ error: "Checkout session not found" }, 404)
+    }
+
+    const s = sessionRows[0]
+    if (s.expiresAt.getTime() < Date.now()) {
+      return c.json({ error: "Checkout session expired" }, 410)
+    }
+    return c.json({ error: "Checkout session already processed" }, 409)
+  }
+
+  const s = updatedSessions[0]
   const paymentId = crypto.randomUUID()
-  await db.insert(schema.payment).values({
-    id: paymentId,
-    checkoutSessionId: id,
-    txHash: body.txHash,
-    buyerAddress: body.buyerAddress,
-    signature: body.signature,
-    amount: s.amount,
-    feeAmount: s.feeAmount,
-    merchantAmount: s.merchantAmount,
-    status: "pending_confirmation",
-    blockchainStatus: "pending",
-    confirmations: 0,
-    retryCount: 0,
-    nextRetryAt: new Date(now + 60 * 1000), // retry in 1 minute
-    createdAt: new Date(now),
-    updatedAt: new Date(now),
-  })
+
+  try {
+    await db.insert(schema.payment).values({
+      id: paymentId,
+      checkoutSessionId: id,
+      txHash: body.txHash,
+      feeTxHash: body.feeTxHash ?? null,
+      buyerAddress: body.buyerAddress,
+      signature: body.signature,
+      amount: s.amount,
+      feeAmount: s.feeAmount,
+      merchantAmount: s.merchantAmount,
+      status: "pending_confirmation",
+      blockchainStatus: "pending",
+      confirmations: 0,
+      retryCount: 0,
+      nextRetryAt: new Date(now + 60 * 1000), // retry in 1 minute
+      createdAt: new Date(now),
+      updatedAt: new Date(now),
+    })
+  } catch (err: any) {
+    if (err.message?.includes("UNIQUE") || err.message?.includes("constraint")) {
+      const dup = await db
+        .select({ id: schema.payment.id })
+        .from(schema.payment)
+        .where(and(
+          eq(schema.payment.checkoutSessionId, id),
+          eq(schema.payment.txHash, body.txHash),
+        ))
+        .limit(1)
+      return c.json({ error: "Payment already recorded for this transaction", paymentId: dup[0]?.id }, 409)
+    }
+    throw err
+  }
 
   return c.json({
     id: paymentId,
@@ -255,7 +294,9 @@ checkoutApp.post("/:id/confirm", zValidator("json", confirmSchema), async (c) =>
 
 // GET /api/payment/:id/status — check payment status
 // This endpoint is polled by the frontend
-checkoutApp.get("/payment/:id/status", async (c) => {
+checkoutApp.get("/payment/:id/status",
+  rateLimit({ limit: 60, windowSeconds: 60, keyFn: (c) => `checkout-payment-status:${clientIp(c)}:${c.req.param("id")}` }),
+  async (c) => {
   const id = c.req.param("id")
   const db = getDB(c.env.DB)
 

@@ -1,5 +1,5 @@
 {
-  "name": "airpay",
+  "name": "@airpay/node",
   "version": "0.1.0",
   "description": "Official AirPay Node.js SDK — crypto payment gateway for Solana, Ethereum, Arbitrum, and Polygon",
   "type": "module",
