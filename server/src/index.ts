@@ -6,6 +6,7 @@ import merchantRoutes from "./routes/merchant"
 import v1Routes from "./routes/v1/checkout"
 import * as schema from "./db/schema"
 import { handleBlockchainVerification } from "./cron"
+import { checkHealth } from "./health"
 
 export type MerchantProfile = typeof schema.merchantProfiles.$inferSelect
 
@@ -51,7 +52,10 @@ app.use("/api/*", cors({
 
 app.get("/", (c) => c.json({ message: "AirPay Server" }))
 
-app.get("/api/health", (c) => c.json({ status: "ok" }))
+app.get("/api/health", async (c) => {
+  const health = await checkHealth(c.env)
+  return c.json(health, health.status === "ok" ? 200 : health.status === "degraded" ? 200 : 503)
+})
 
 app.on(["POST", "GET"], "/api/auth/*", async (c) => {
   console.log("Auth request:", c.req.method, c.req.url)

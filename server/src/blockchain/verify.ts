@@ -55,7 +55,7 @@ export type VerificationResult =
   | { valid: false; confirmations: number; failed: true; reason: string }
   | { valid: false; confirmations: number; failed: false; reason: null }
 
-export function getRpcUrl(network: string, env: Record<string, string | undefined>): string {
+export function getRpcUrl(network: string, env: { [key: string]: unknown }): string {
   const envKey = `RPC_${network.toUpperCase()}` as keyof typeof env
   const url = (env[envKey] as string | undefined) || RPC_ENDPOINTS[network]
   if (!url) {

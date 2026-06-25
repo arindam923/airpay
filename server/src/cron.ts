@@ -1,31 +1,69 @@
-import { eq, and, lte } from "drizzle-orm"
+import { eq, and, lte, or, isNull } from "drizzle-orm"
 import { getDB } from "./db"
 import * as schema from "./db/schema"
 import { verifyPaymentTransaction } from "./blockchain/verify"
+import { queueWebhook, processWebhookRetries } from "./webhooks/delivery"
 
 // Cron handler for blockchain verification
 // This runs every minute to check pending transactions
 
 const MAX_RETRIES = 10
 const RETRY_DELAYS = [60, 120, 240, 480, 960, 1800, 3600, 7200, 14400, 28800] // seconds
+const LOCK_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes
 
 export async function handleBlockchainVerification(c: any) {
   const db = getDB(c.env.DB)
   const now = Date.now()
+  const instanceId = crypto.randomUUID()
 
-  // Find payments that need verification
+  // Find payments that need verification and are not currently locked by another instance.
   const pendingPayments = await db
     .select()
     .from(schema.payment)
     .where(
       and(
         eq(schema.payment.blockchainStatus, "pending"),
-        lte(schema.payment.nextRetryAt, new Date(now))
+        lte(schema.payment.nextRetryAt, new Date(now)),
+        or(
+          isNull(schema.payment.lockedAt),
+          lte(schema.payment.lockedAt, new Date(now - LOCK_TIMEOUT_MS))
+        )
       )
     )
     .limit(50)
 
+  let processed = 0
+
   for (const payment of pendingPayments) {
+    // Try to acquire a row-level lock for this payment.
+    await db
+      .update(schema.payment)
+      .set({
+        lockedAt: new Date(now),
+        lockedBy: instanceId,
+        updatedAt: new Date(now),
+      })
+      .where(
+        and(
+          eq(schema.payment.id, payment.id),
+          or(
+            isNull(schema.payment.lockedAt),
+            lte(schema.payment.lockedAt, new Date(now - LOCK_TIMEOUT_MS))
+          )
+        )
+      )
+
+    const relocked = await db
+      .select({ lockedBy: schema.payment.lockedBy })
+      .from(schema.payment)
+      .where(eq(schema.payment.id, payment.id))
+      .limit(1)
+
+    if (!relocked || relocked.length === 0 || relocked[0].lockedBy !== instanceId) {
+      // Another cron instance acquired the lock first.
+      continue
+    }
+
     try {
       // Get session details
       const session = await db
@@ -49,6 +87,7 @@ export async function handleBlockchainVerification(c: any) {
       }
 
       const verified = await verifyPaymentTransaction(payment, session[0], c.env)
+      processed++
 
       if (verified.valid) {
         // Update payment as confirmed
@@ -63,16 +102,8 @@ export async function handleBlockchainVerification(c: any) {
           })
           .where(eq(schema.payment.id, payment.id))
 
-        // Get merchant profile for webhook
-        const profile = await db
-          .select()
-          .from(schema.merchantProfiles)
-          .where(eq(schema.merchantProfiles.id, session[0].merchantProfileId))
-          .limit(1)
-
-        if (profile && profile.length > 0 && profile[0].webhookUrl) {
-          await sendWebhook(profile[0], payment, session[0], "payment.confirmed", c.env)
-        }
+        // Queue webhook for confirmed payment
+        await queueWebhook(db, payment, session[0], "payment.confirmed", c.env)
       } else if (verified.failed) {
         // Transaction failed on blockchain
         await db
@@ -85,16 +116,8 @@ export async function handleBlockchainVerification(c: any) {
           })
           .where(eq(schema.payment.id, payment.id))
 
-        // Send webhook for failed payment
-        const profile = await db
-          .select()
-          .from(schema.merchantProfiles)
-          .where(eq(schema.merchantProfiles.id, session[0].merchantProfileId))
-          .limit(1)
-
-        if (profile && profile.length > 0 && profile[0].webhookUrl) {
-          await sendWebhook(profile[0], payment, session[0], "payment.failed", c.env)
-        }
+        // Queue webhook for failed payment
+        await queueWebhook(db, payment, session[0], "payment.failed", c.env)
       } else {
         // Not yet confirmed, schedule retry
         const retryCount = payment.retryCount + 1
@@ -138,99 +161,21 @@ export async function handleBlockchainVerification(c: any) {
           updatedAt: new Date(now),
         })
         .where(eq(schema.payment.id, payment.id))
+    } finally {
+      // Always release the row lock, even if this instance crashed mid-verify.
+      await db
+        .update(schema.payment)
+        .set({ lockedAt: null, lockedBy: null })
+        .where(eq(schema.payment.id, payment.id))
     }
   }
 
-  return { processed: pendingPayments.length }
-}
-
-async function sendWebhook(
-  profile: any,
-  payment: any,
-  session: any,
-  event: string,
-  env: any,
-) {
-  // Build the event payload. currency/network live on the checkout session,
-  // not the payment row — without the session these would be undefined.
-  const payload = {
-    id: `evt_${crypto.randomUUID()}`,
-    object: "event",
-    event,
-    payment_id: payment.id,
-    checkout_session_id: payment.checkoutSessionId,
-    amount: payment.amount,
-    fee_amount: payment.feeAmount,
-    merchant_amount: payment.merchantAmount,
-    currency: session?.currency,
-    network: session?.network,
-    tx_hash: payment.txHash,
-    status: payment.status,
-    blockchain_status: payment.blockchainStatus,
-    confirmations: payment.confirmations,
-    created: Date.now(),
-  }
-
-  const body = JSON.stringify(payload)
-  const timestamp = Math.floor(Date.now() / 1000)
-  const signingSecret = profile.webhookSecret || ""
-
-  // Stripe-style signature: HMAC-SHA256 over "<timestamp>.<body>"
-  const signature = await signWebhook(body, timestamp, signingSecret)
-  const signatureHeader = `t=${timestamp},v1=${signature}`
-
+  // Process any webhook retries that are due.
   try {
-    const response = await fetch(profile.webhookUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "AirPay-Signature": signatureHeader,
-        "AirPay-Event": event,
-      },
-      body,
-    })
-
-    const responseBody = await response.text()
-
-    const db = getDB(env.DB)
-    await db.insert(schema.webhookDeliveries).values({
-      id: crypto.randomUUID(),
-      paymentId: payment.id,
-      event,
-      url: profile.webhookUrl,
-      statusCode: response.status,
-      responseBody: responseBody.slice(0, 1000),
-      attempt: payment.webhookDeliveryCount + 1,
-      deliveredAt: new Date(),
-      createdAt: new Date(),
-    })
-
-    await db
-      .update(schema.payment)
-      .set({
-        webhookDelivered: response.status >= 200 && response.status < 300,
-        webhookDeliveryCount: payment.webhookDeliveryCount + 1,
-        updatedAt: new Date(),
-      })
-      .where(eq(schema.payment.id, payment.id))
+    await processWebhookRetries(db, c.env, 50)
   } catch (err) {
-    console.error(`Webhook delivery failed for payment ${payment.id}:`, err)
+    console.error("Error processing webhook retries:", err)
   }
-}
 
-/**
- * Compute the v1 HMAC-SHA256 signature for a webhook body.
- * Signed payload: "<timestamp>.<body>" keyed with the merchant's whsec_.
- */
-async function signWebhook(body: string, timestamp: number, secret: string): Promise<string> {
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  )
-  const data = new TextEncoder().encode(`${timestamp}.${body}`)
-  const sig = await crypto.subtle.sign("HMAC", key, data)
-  return Array.from(new Uint8Array(sig), b => b.toString(16).padStart(2, "0")).join("")
+  return { processed }
 }

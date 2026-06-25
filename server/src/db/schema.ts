@@ -128,6 +128,8 @@ export const payment = sqliteTable("payments", {
   webhookDelivered: integer("webhook_delivered", { mode: "boolean" }).notNull().default(false),
   webhookDeliveryCount: integer("webhook_delivery_count").notNull().default(0),
   settledAt: integer("settled_at", { mode: "timestamp_ms" }),
+  lockedAt: integer("locked_at", { mode: "timestamp_ms" }),
+  lockedBy: text("locked_by"),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
 }, (table) => ({
@@ -176,6 +178,26 @@ export const idempotencyKeys = sqliteTable("idempotency_keys", {
   responseStatus: integer("response_status").notNull(),
   responseBody: text("response_body").notNull(),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+})
+
+// Webhook retry queue
+export const webhookRetries = sqliteTable("webhook_retries", {
+  id: text("id").primaryKey(),
+  paymentId: text("payment_id")
+    .notNull()
+    .references(() => payment.id, { onDelete: "cascade" }),
+  event: text("event").notNull(),
+  url: text("url").notNull(),
+  payload: text("payload").notNull(),
+  signatureHeader: text("signature_header").notNull(),
+  attempt: integer("attempt").notNull().default(0),
+  maxAttempts: integer("max_attempts").notNull().default(5),
+  nextAttemptAt: integer("next_attempt_at", { mode: "timestamp_ms" }).notNull(),
+  lastStatusCode: integer("last_status_code"),
+  lastError: text("last_error"),
+  failedPermanently: integer("failed_permanently", { mode: "boolean" }).notNull().default(false),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
 })
 
 // Webhook event subscriptions (per merchant, per event)
