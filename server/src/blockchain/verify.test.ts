@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
-import { verifyPaymentTransaction, centsToTokenUnits, getTokenAddress } from "./verify"
+import { verifyPaymentTransaction, centsToTokenUnits, getTokenAddress, getTokenDecimals } from "./verify"
 import type * as schema from "../db/schema"
 
 const buyerAddress = "0x1111111111111111111111111111111111111111"
@@ -20,9 +20,11 @@ const baseSession = {
 const basePayment = {
   id: "pay_123",
   checkoutSessionId: "cs_123",
-  txHash: "0xmerchanttx",
+  txHash: "0x" + "a1".repeat(32),
   buyerAddress,
 } as unknown as typeof schema.payment.$inferSelect
+
+const decimals = getTokenDecimals(baseSession.network, baseSession.currency)
 
 function makeEvmReceipt(
   status: string,
@@ -49,6 +51,10 @@ function transferLog(from: string, to: string, value: bigint) {
   }
 }
 
+function evmTxHash(prefix = "aa"): string {
+  return "0x" + prefix.repeat(32)
+}
+
 describe("verifyPaymentTransaction", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn())
@@ -66,8 +72,8 @@ describe("verifyPaymentTransaction", () => {
           jsonrpc: "2.0",
           id: 1,
           result: makeEvmReceipt("0x1", [
-            transferLog(buyerAddress, merchantWallet, centsToTokenUnits(4899)),
-            transferLog(buyerAddress, companyWallet, centsToTokenUnits(100)),
+            transferLog(buyerAddress, merchantWallet, centsToTokenUnits(4899, decimals)),
+            transferLog(buyerAddress, companyWallet, centsToTokenUnits(100, decimals)),
           ]),
         }),
         { status: 200 },
@@ -91,8 +97,8 @@ describe("verifyPaymentTransaction", () => {
           jsonrpc: "2.0",
           id: 1,
           result: makeEvmReceipt("0x1", [
-            transferLog(buyerAddress, merchantWallet, centsToTokenUnits(1000)),
-            transferLog(buyerAddress, companyWallet, centsToTokenUnits(100)),
+            transferLog(buyerAddress, merchantWallet, centsToTokenUnits(1000, decimals)),
+            transferLog(buyerAddress, companyWallet, centsToTokenUnits(100, decimals)),
           ]),
         }),
         { status: 200 },
@@ -125,7 +131,7 @@ describe("verifyPaymentTransaction", () => {
   })
 
   it("accepts dual-tx EVM mode when feeTxHash is provided", async () => {
-    const payment = { ...basePayment, feeTxHash: "0xfeetx" } as typeof basePayment
+    const payment = { ...basePayment, feeTxHash: evmTxHash("bb") } as typeof basePayment
     const fetchMock = vi.mocked(globalThis.fetch)
 
     fetchMock
@@ -135,7 +141,7 @@ describe("verifyPaymentTransaction", () => {
             jsonrpc: "2.0",
             id: 1,
             result: makeEvmReceipt("0x1", [
-              transferLog(buyerAddress, merchantWallet, centsToTokenUnits(4899)),
+              transferLog(buyerAddress, merchantWallet, centsToTokenUnits(4899, decimals)),
             ]),
           }),
           { status: 200 },
@@ -147,7 +153,7 @@ describe("verifyPaymentTransaction", () => {
             jsonrpc: "2.0",
             id: 1,
             result: makeEvmReceipt("0x1", [
-              transferLog(buyerAddress, companyWallet, centsToTokenUnits(100)),
+              transferLog(buyerAddress, companyWallet, centsToTokenUnits(100, decimals)),
             ]),
           }),
           { status: 200 },
@@ -166,7 +172,7 @@ describe("verifyPaymentTransaction", () => {
   })
 
   it("rejects dual-tx EVM mode when fee tx is missing", async () => {
-    const payment = { ...basePayment, feeTxHash: "0xfeetx" } as typeof basePayment
+    const payment = { ...basePayment, feeTxHash: evmTxHash("bb") } as typeof basePayment
     const fetchMock = vi.mocked(globalThis.fetch)
 
     fetchMock
@@ -176,7 +182,7 @@ describe("verifyPaymentTransaction", () => {
             jsonrpc: "2.0",
             id: 1,
             result: makeEvmReceipt("0x1", [
-              transferLog(buyerAddress, merchantWallet, centsToTokenUnits(4899)),
+              transferLog(buyerAddress, merchantWallet, centsToTokenUnits(4899, decimals)),
             ]),
           }),
           { status: 200 },
@@ -201,7 +207,7 @@ describe("verifyPaymentTransaction", () => {
 
   it("accepts a valid Solana transaction", async () => {
     const solSession = { ...baseSession, network: "Solana" } as typeof baseSession
-    const solPayment = { ...basePayment, txHash: "soltxhash" } as typeof basePayment
+    const solPayment = { ...basePayment, txHash: "A".repeat(88) } as typeof basePayment
     const fetchMock = vi.mocked(globalThis.fetch)
 
     fetchMock.mockResolvedValueOnce(
@@ -243,7 +249,7 @@ describe("verifyPaymentTransaction", () => {
 
   it("rejects Solana transaction with wrong buyer signer", async () => {
     const solSession = { ...baseSession, network: "Solana" } as typeof baseSession
-    const solPayment = { ...basePayment, txHash: "soltxhash" } as typeof basePayment
+    const solPayment = { ...basePayment, txHash: "A".repeat(88) } as typeof basePayment
     const fetchMock = vi.mocked(globalThis.fetch)
 
     fetchMock.mockResolvedValueOnce(

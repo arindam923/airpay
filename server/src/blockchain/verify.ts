@@ -34,6 +34,15 @@ export const TOKEN_ADDRESSES: Record<string, Record<string, string>> = {
   },
 }
 
+// Decimals per token. All supported stablecoins currently use 6 decimals,
+// but this map makes the conversion explicit and safe if that changes.
+export const TOKEN_DECIMALS: Record<string, Record<string, number>> = {
+  Solana: { USDC: 6, USDT: 6, EURC: 6 },
+  Ethereum: { USDC: 6, USDT: 6, EURC: 6 },
+  Arbitrum: { USDC: 6, USDT: 6, EURC: 6 },
+  Polygon: { USDC: 6, USDT: 6, EURC: 6 },
+}
+
 const RPC_ENDPOINTS: Record<string, string> = {
   Solana: "https://api.mainnet-beta.solana.com",
   Ethereum: "https://eth.llamarpc.com",
@@ -48,9 +57,11 @@ export type VerificationResult =
 
 export function getRpcUrl(network: string, env: Record<string, string | undefined>): string {
   const envKey = `RPC_${network.toUpperCase()}` as keyof typeof env
-  return (env[envKey] as string | undefined)
-    || RPC_ENDPOINTS[network]
-    || RPC_ENDPOINTS.Solana
+  const url = (env[envKey] as string | undefined) || RPC_ENDPOINTS[network]
+  if (!url) {
+    throw new Error(`No RPC endpoint configured for network: ${network}`)
+  }
+  return url
 }
 
 export function getTokenAddress(network: string, currency: string): string | null {
@@ -59,10 +70,24 @@ export function getTokenAddress(network: string, currency: string): string | nul
 
 /**
  * Convert AirPay's internal "cents" amount to raw token units.
- * All supported stablecoins use 6 decimals, so 1 cent = 10^4 units.
+ * Throws if the input is not a safe integer.
  */
-export function centsToTokenUnits(cents: number): bigint {
-  return BigInt(cents) * BigInt(10_000)
+export function centsToTokenUnits(cents: number, decimals: number): bigint {
+  if (!Number.isSafeInteger(cents) || cents < 0) {
+    throw new Error(`Invalid cents amount: ${cents}`)
+  }
+  if (!Number.isSafeInteger(decimals) || decimals < 0 || decimals > 18) {
+    throw new Error(`Invalid token decimals: ${decimals}`)
+  }
+  const multiplier = 10 ** (decimals - 2)
+  if (!Number.isFinite(multiplier)) {
+    throw new Error(`Cannot convert cents with ${decimals} decimals`)
+  }
+  return BigInt(cents) * BigInt(Math.round(multiplier))
+}
+
+export function getTokenDecimals(network: string, currency: string): number {
+  return TOKEN_DECIMALS[network]?.[currency] ?? 6
 }
 
 /**
@@ -77,20 +102,38 @@ export async function verifyPaymentTransaction(
   session: typeof schema.checkOutSessions.$inferSelect,
   env: Record<string, string | undefined>,
 ): Promise<VerificationResult> {
+  if (!isValidTxHash(payment.txHash, session.network)) {
+    return { valid: false, failed: true, confirmations: 0, reason: "Invalid transaction hash format" }
+  }
+  if (payment.feeTxHash && !isValidTxHash(payment.feeTxHash, session.network)) {
+    return { valid: false, failed: true, confirmations: 0, reason: "Invalid fee transaction hash format" }
+  }
+
   const tokenAddress = getTokenAddress(session.network, session.currency)
   if (!tokenAddress) {
     return { valid: false, failed: true, confirmations: 0, reason: `Unsupported currency ${session.currency} on ${session.network}` }
   }
 
+  const decimals = getTokenDecimals(session.network, session.currency)
+
   try {
     if (session.network === "Solana") {
-      return await verifySolanaTransaction(payment, session, tokenAddress, env)
+      return await verifySolanaTransaction(payment, session, tokenAddress, decimals, env)
     }
-    return await verifyEvmTransaction(payment, session, tokenAddress, env)
+    return await verifyEvmTransaction(payment, session, tokenAddress, decimals, env)
   } catch (err) {
     console.error(`Verification error for payment ${payment.id}:`, err)
     return { valid: false, failed: false, confirmations: 0, reason: null }
   }
+}
+
+function isValidTxHash(hash: string, network: string): boolean {
+  if (network === "Solana") {
+    // Solana signatures are base58, typically 87-88 characters.
+    return /^[1-9A-HJ-NP-Za-km-z]{85,90}$/.test(hash)
+  }
+  // EVM tx hashes are 0x-prefixed 32-byte hex.
+  return /^0x[0-9a-fA-F]{64}$/.test(hash)
 }
 
 // ---------------------------------------------------------------------------
@@ -101,6 +144,7 @@ async function verifySolanaTransaction(
   payment: typeof schema.payment.$inferSelect,
   session: typeof schema.checkOutSessions.$inferSelect,
   tokenMint: string,
+  decimals: number,
   env: Record<string, string | undefined>,
 ): Promise<VerificationResult> {
   const rpcUrl = getRpcUrl("Solana", env)
@@ -152,8 +196,8 @@ async function verifySolanaTransaction(
     postBalances.set(key, BigInt(balance.uiTokenAmount?.amount ?? "0"))
   }
 
-  const expectedMerchant = centsToTokenUnits(session.merchantAmount)
-  const expectedFee = centsToTokenUnits(session.feeAmount)
+  const expectedMerchant = centsToTokenUnits(session.merchantAmount, decimals)
+  const expectedFee = centsToTokenUnits(session.feeAmount, decimals)
 
   const merchantKey = `${tokenMint}:${session.merchantWalletAddress}`
   const companyKey = `${tokenMint}:${session.companyWalletAddress}`
@@ -170,8 +214,11 @@ async function verifySolanaTransaction(
     }
   }
 
-  const confirmations = result.meta?.confirmations ?? 1
-  return { valid: true, failed: false, confirmations, reason: null }
+  // Solana confirmations from getTransaction are unreliable for finalized txs.
+  // We expose them for the status display but the cron separately decides
+  // "finalized" via commitment/slot checks later.
+  const confirmations = typeof result.meta?.confirmations === "number" ? result.meta.confirmations : 1
+  return { valid: true, failed: false, confirmations: Math.max(1, confirmations), reason: null }
 }
 
 // ---------------------------------------------------------------------------
@@ -185,6 +232,7 @@ async function verifyEvmTransaction(
   payment: typeof schema.payment.$inferSelect,
   session: typeof schema.checkOutSessions.$inferSelect,
   tokenAddress: string,
+  decimals: number,
   env: Record<string, string | undefined>,
 ): Promise<VerificationResult> {
   const rpcUrl = getRpcUrl(session.network, env)
@@ -193,8 +241,8 @@ async function verifyEvmTransaction(
     return { valid: false, failed: true, confirmations: 0, reason: "Missing buyer address" }
   }
 
-  const expectedMerchant = centsToTokenUnits(session.merchantAmount)
-  const expectedFee = centsToTokenUnits(session.feeAmount)
+  const expectedMerchant = centsToTokenUnits(session.merchantAmount, decimals)
+  const expectedFee = centsToTokenUnits(session.feeAmount, decimals)
 
   // Dual-tx mode: merchant tx in txHash, fee tx in feeTxHash.
   if (payment.feeTxHash) {
@@ -255,10 +303,11 @@ async function verifyEvmTransaction(
 
   for (const log of receipt.logs ?? []) {
     if (log.address.toLowerCase() !== tokenAddress.toLowerCase()) continue
+    if (!Array.isArray(log.topics) || log.topics.length < 3) continue
     if (log.topics[0]?.toLowerCase() !== TRANSFER_EVENT.toLowerCase()) continue
 
-    const from = "0x" + (log.topics[1] ?? "").slice(26).toLowerCase()
-    const to = "0x" + (log.topics[2] ?? "").slice(26).toLowerCase()
+    const from = "0x" + log.topics[1].slice(26).toLowerCase()
+    const to = "0x" + log.topics[2].slice(26).toLowerCase()
     const value = BigInt(log.data ?? "0")
 
     if (from === buyerAddress.toLowerCase()) {
@@ -320,10 +369,11 @@ async function verifyEvmTransfer(
 
   for (const log of receipt.logs ?? []) {
     if (log.address.toLowerCase() !== tokenAddress.toLowerCase()) continue
+    if (!Array.isArray(log.topics) || log.topics.length < 3) continue
     if (log.topics[0]?.toLowerCase() !== TRANSFER_EVENT.toLowerCase()) continue
 
-    const from = "0x" + (log.topics[1] ?? "").slice(26).toLowerCase()
-    const to = "0x" + (log.topics[2] ?? "").slice(26).toLowerCase()
+    const from = "0x" + log.topics[1].slice(26).toLowerCase()
+    const to = "0x" + log.topics[2].slice(26).toLowerCase()
     const value = BigInt(log.data ?? "0")
 
     if (
