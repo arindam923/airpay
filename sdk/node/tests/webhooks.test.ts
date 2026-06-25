@@ -1,7 +1,7 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { AirpayClient, AirpaySignatureVerificationError, constructEvent } from "../src/index.js";
-import type { WebhookEvent } from "../src/types.js";
+import webhookFixture from "../../contract/examples/webhook_event_confirmed.json" with { type: "json" };
 
 const webhookSecret = "whsec_test_secret";
 
@@ -10,25 +10,7 @@ function signPayload(payload: string, timestamp: number, secret: string): string
   return `t=${timestamp},v1=${signed}`;
 }
 
-const payload: WebhookEvent = {
-  id: "evt_123",
-  object: "event",
-  event: "payment.confirmed",
-  payment_id: "pay_123",
-  checkout_session_id: "cs_123",
-  amount: 4999,
-  fee_amount: 100,
-  merchant_amount: 4899,
-  currency: "USDC",
-  network: "Solana",
-  tx_hash: "txhash",
-  status: "completed",
-  blockchain_status: "finalized",
-  confirmations: 12,
-  created: 1_000_000,
-};
-
-const payloadString = JSON.stringify(payload);
+const payloadString = JSON.stringify(webhookFixture);
 
 describe("constructEvent", () => {
   it("verifies a valid webhook signature", async () => {
@@ -36,7 +18,7 @@ describe("constructEvent", () => {
     const signature = signPayload(payloadString, timestamp, webhookSecret);
 
     const event = await constructEvent(payloadString, signature, webhookSecret);
-    expect(event).toEqual(payload);
+    expect(event).toEqual(webhookFixture);
   });
 
   it("verifies via AirpayClient", async () => {
@@ -45,7 +27,7 @@ describe("constructEvent", () => {
     const signature = signPayload(payloadString, timestamp, webhookSecret);
 
     const event = await client.constructEvent(payloadString, signature, webhookSecret);
-    expect(event).toEqual(payload);
+    expect(event).toEqual(webhookFixture);
   });
 
   it("rejects a missing signature header", async () => {
@@ -77,7 +59,7 @@ describe("constructEvent", () => {
     const signature = signPayload(payloadString, timestamp, webhookSecret);
 
     const event = await constructEvent(payloadString, signature, webhookSecret, 0);
-    expect(event).toEqual(payload);
+    expect(event).toEqual(webhookFixture);
   });
 
   it("rejects a malformed signature header", async () => {

@@ -1,7 +1,7 @@
 import { eq, and, lte, or, isNull } from "drizzle-orm"
 import { getDB } from "./db"
 import * as schema from "./db/schema"
-import { verifyPaymentTransaction } from "./blockchain/verify"
+import { verifyPaymentTransaction, getFinalityConfirmations } from "./blockchain/verify"
 import { queueWebhook, processWebhookRetries } from "./webhooks/delivery"
 
 // Cron handler for blockchain verification
@@ -91,10 +91,11 @@ export async function handleBlockchainVerification(c: any) {
 
       if (verified.valid) {
         // Update payment as confirmed
+        const finalityThreshold = getFinalityConfirmations(session[0].network)
         await db
           .update(schema.payment)
           .set({
-            blockchainStatus: verified.confirmations >= 12 ? "finalized" : "confirmed",
+            blockchainStatus: verified.confirmations >= finalityThreshold ? "finalized" : "confirmed",
             confirmations: verified.confirmations || 1,
             status: "completed",
             settledAt: new Date(now),

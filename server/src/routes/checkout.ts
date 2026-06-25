@@ -7,6 +7,7 @@ import * as schema from "../db/schema"
 import type { Env } from "../index"
 import { createAuth } from "../auth"
 import { rateLimit, clientIp } from "../middleware/rateLimit"
+import { getTokenAddress } from "../blockchain/verify"
 
 const checkoutApp = new Hono<Env>()
 
@@ -69,6 +70,12 @@ checkoutApp.post("/", zValidator("json", createSchema), async (c) => {
 
   if (!wallet || wallet.length === 0) {
     return c.json({ error: `Wallet not configured for ${body.network}` }, 400)
+  }
+
+  // Validate the requested currency/network is supported on-chain.
+  const tokenAddress = getTokenAddress(body.network, body.currency)
+  if (!tokenAddress) {
+    return c.json({ error: `Unsupported currency ${body.currency} on ${body.network}` }, 400)
   }
 
   const w = wallet[0]

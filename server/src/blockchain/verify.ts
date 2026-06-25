@@ -43,11 +43,19 @@ export const TOKEN_DECIMALS: Record<string, Record<string, number>> = {
   Polygon: { USDC: 6, USDT: 6, EURC: 6 },
 }
 
-const RPC_ENDPOINTS: Record<string, string> = {
-  Solana: "https://api.mainnet-beta.solana.com",
-  Ethereum: "https://eth.llamarpc.com",
-  Arbitrum: "https://arb1.arbitrum.io/rpc",
-  Polygon: "https://polygon.llamarpc.com",
+const RPC_ENDPOINTS: Record<string, string[]> = {
+  Solana: ["https://api.mainnet-beta.solana.com"],
+  Ethereum: ["https://eth.llamarpc.com"],
+  Arbitrum: ["https://arb1.arbitrum.io/rpc"],
+  Polygon: ["https://polygon.llamarpc.com"],
+}
+
+// Number of confirmations required before we consider a payment "finalized".
+// Solana is treated separately via commitment level / slot rootedness.
+export const FINALITY_CONFIRMATIONS: Record<string, number> = {
+  Ethereum: 12,
+  Arbitrum: 20,
+  Polygon: 128,
 }
 
 export type VerificationResult =
@@ -55,13 +63,62 @@ export type VerificationResult =
   | { valid: false; confirmations: number; failed: true; reason: string }
   | { valid: false; confirmations: number; failed: false; reason: null }
 
-export function getRpcUrl(network: string, env: { [key: string]: unknown }): string {
+export function getRpcUrls(network: string, env: { [key: string]: unknown }): string[] {
   const envKey = `RPC_${network.toUpperCase()}` as keyof typeof env
-  const url = (env[envKey] as string | undefined) || RPC_ENDPOINTS[network]
-  if (!url) {
+  const envValue = env[envKey]
+
+  let urls: string[]
+  if (typeof envValue === "string" && envValue.length > 0) {
+    urls = envValue.split(",").map(u => u.trim()).filter(Boolean)
+  } else {
+    urls = RPC_ENDPOINTS[network] ?? []
+  }
+
+  if (urls.length === 0) {
     throw new Error(`No RPC endpoint configured for network: ${network}`)
   }
-  return url
+  return urls
+}
+
+export function getRpcUrl(network: string, env: { [key: string]: unknown }): string {
+  return getRpcUrls(network, env)[0]
+}
+
+export function getFinalityConfirmations(network: string): number {
+  return FINALITY_CONFIRMATIONS[network] ?? 12
+}
+
+/**
+ * Execute an RPC request against a network, falling back through configured
+ * endpoints if the primary fails.
+ */
+async function rpcFetch(
+  network: string,
+  env: { [key: string]: unknown },
+  body: object,
+): Promise<any> {
+  const urls = getRpcUrls(network, env)
+  const payload = JSON.stringify(body)
+  let lastError: Error | undefined
+
+  for (const url of urls) {
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: payload,
+      })
+      const data: any = await response.json()
+      if (data?.error) {
+        throw new Error(`RPC error: ${JSON.stringify(data.error)}`)
+      }
+      return data
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err))
+    }
+  }
+
+  throw lastError ?? new Error(`All RPC endpoints failed for ${network}`)
 }
 
 export function getTokenAddress(network: string, currency: string): string | null {
@@ -145,21 +202,15 @@ async function verifySolanaTransaction(
   session: typeof schema.checkOutSessions.$inferSelect,
   tokenMint: string,
   decimals: number,
-  env: Record<string, string | undefined>,
+  env: { [key: string]: unknown },
 ): Promise<VerificationResult> {
-  const rpcUrl = getRpcUrl("Solana", env)
-  const response = await fetch(rpcUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: 1,
-      method: "getTransaction",
-      params: [payment.txHash, { encoding: "jsonParsed", commitment: "confirmed", maxSupportedTransactionVersion: 0 }],
-    }),
+  const data = await rpcFetch("Solana", env, {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "getTransaction",
+    params: [payment.txHash, { encoding: "jsonParsed", commitment: "confirmed", maxSupportedTransactionVersion: 0 }],
   })
 
-  const data: any = await response.json()
   const result = data?.result
 
   if (!result || result.meta?.err) {
@@ -233,9 +284,8 @@ async function verifyEvmTransaction(
   session: typeof schema.checkOutSessions.$inferSelect,
   tokenAddress: string,
   decimals: number,
-  env: Record<string, string | undefined>,
+  env: { [key: string]: unknown },
 ): Promise<VerificationResult> {
-  const rpcUrl = getRpcUrl(session.network, env)
   const buyerAddress = payment.buyerAddress
   if (!buyerAddress) {
     return { valid: false, failed: true, confirmations: 0, reason: "Missing buyer address" }
@@ -247,8 +297,8 @@ async function verifyEvmTransaction(
   // Dual-tx mode: merchant tx in txHash, fee tx in feeTxHash.
   if (payment.feeTxHash) {
     const [merchantResult, feeResult] = await Promise.all([
-      verifyEvmTransfer(rpcUrl, payment.txHash, tokenAddress, buyerAddress, session.merchantWalletAddress, expectedMerchant),
-      verifyEvmTransfer(rpcUrl, payment.feeTxHash, tokenAddress, buyerAddress, session.companyWalletAddress, expectedFee),
+      verifyEvmTransfer(session.network, env, payment.txHash, tokenAddress, buyerAddress, session.merchantWalletAddress, expectedMerchant),
+      verifyEvmTransfer(session.network, env, payment.feeTxHash, tokenAddress, buyerAddress, session.companyWalletAddress, expectedFee),
     ])
 
     if (!merchantResult.found) {
@@ -269,25 +319,20 @@ async function verifyEvmTransaction(
     }
 
     const confirmations = Math.min(
-      await getEvmConfirmations(rpcUrl, parseInt(merchantResult.receipt!.blockNumber, 16)),
-      await getEvmConfirmations(rpcUrl, parseInt(feeResult.receipt!.blockNumber, 16)),
+      await getEvmConfirmations(session.network, env, parseInt(merchantResult.receipt!.blockNumber, 16)),
+      await getEvmConfirmations(session.network, env, parseInt(feeResult.receipt!.blockNumber, 16)),
     )
     return { valid: true, failed: false, confirmations, reason: null }
   }
 
   // Single-tx mode: atomic splitter contract / Solana-style single transaction.
-  const response = await fetch(rpcUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: 1,
-      method: "eth_getTransactionReceipt",
-      params: [payment.txHash],
-    }),
+  const data = await rpcFetch(session.network, env, {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "eth_getTransactionReceipt",
+    params: [payment.txHash],
   })
 
-  const data: any = await response.json()
   const receipt = data?.result
 
   if (!receipt || !receipt.blockHash) {
@@ -329,7 +374,7 @@ async function verifyEvmTransaction(
     }
   }
 
-  const confirmations = await getEvmConfirmations(rpcUrl, parseInt(receipt.blockNumber, 16))
+  const confirmations = await getEvmConfirmations(session.network, env, parseInt(receipt.blockNumber, 16))
   return { valid: true, failed: false, confirmations, reason: null }
 }
 
@@ -338,25 +383,21 @@ type TransferCheck =
   | { found: false; receipt?: any; failed: boolean; reason: string | null }
 
 async function verifyEvmTransfer(
-  rpcUrl: string,
+  network: string,
+  env: { [key: string]: unknown },
   txHash: string,
   tokenAddress: string,
   fromAddress: string,
   toAddress: string,
   expectedValue: bigint,
 ): Promise<TransferCheck> {
-  const response = await fetch(rpcUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: 1,
-      method: "eth_getTransactionReceipt",
-      params: [txHash],
-    }),
+  const data = await rpcFetch(network, env, {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "eth_getTransactionReceipt",
+    params: [txHash],
   })
 
-  const data: any = await response.json()
   const receipt = data?.result
 
   if (!receipt || !receipt.blockHash) {
@@ -388,19 +429,14 @@ async function verifyEvmTransfer(
   return { found: false, receipt, failed: true, reason: "Transaction does not contain the expected transfer" }
 }
 
-async function getEvmConfirmations(rpcUrl: string, txBlockNumber: number): Promise<number> {
+async function getEvmConfirmations(network: string, env: { [key: string]: unknown }, txBlockNumber: number): Promise<number> {
   try {
-    const response = await fetch(rpcUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "eth_blockNumber",
-        params: [],
-      }),
+    const data = await rpcFetch(network, env, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "eth_blockNumber",
+      params: [],
     })
-    const data: any = await response.json()
     const currentBlock = parseInt(data?.result, 16)
     return Math.max(0, currentBlock - txBlockNumber)
   } catch {

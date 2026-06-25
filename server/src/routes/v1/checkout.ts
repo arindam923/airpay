@@ -8,6 +8,7 @@ import type { Env } from "../../index"
 import { apiKeyAuth, getAuthProfile } from "../../middleware/apiKeyAuth"
 import { idempotencyMiddleware, storeIdempotentResponse } from "../../middleware/idempotency"
 import { rateLimit, clientIp } from "../../middleware/rateLimit"
+import { getTokenAddress } from "../../blockchain/verify"
 
 const v1 = new Hono<Env>()
 
@@ -55,6 +56,12 @@ v1.post("/checkout/sessions", idempotencyMiddleware, apiKeyAuth(["secret"]), zVa
 
   if (!wallet || wallet.length === 0) {
     return errorResponse(c, 400, "invalid_request_error", `Wallet not configured for ${body.network}`)
+  }
+
+  // Validate the requested currency/network is supported on-chain.
+  const tokenAddress = getTokenAddress(body.network, body.currency)
+  if (!tokenAddress) {
+    return errorResponse(c, 400, "invalid_request_error", `Unsupported currency ${body.currency} on ${body.network}`)
   }
 
   // Resolve company wallet from env
