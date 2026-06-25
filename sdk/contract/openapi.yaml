@@ -1,0 +1,862 @@
+openapi: 3.1.0
+info:
+  title: AirPay API
+  version: 1.0.0
+  summary: Crypto payment gateway for Solana, Ethereum, Arbitrum, and Polygon
+  description: |
+    The AirPay REST API lets merchants create checkout sessions, accept crypto
+    payments, and track settlement across four blockchains.
+
+    ## Authentication
+    All requests require an API key in the `Authorization` header as a Bearer token:
+    ```
+    Authorization: Bearer sk_test_...
+    ```
+
+    Two key types exist:
+    - **Secret keys** (`sk_test_`, `sk_live_`) — full merchant access. Use server-side only.
+    - **Publishable keys** (`pk_test_`, `pk_live_`) — limited to retrieving checkout
+      sessions and polling payment status. Safe for client-side checkout flows.
+
+    ## Environments
+    - **Test** (`_test_` suffix) — sandbox mode, no real funds move.
+    - **Live** (`_live_` suffix) — production.
+
+    ## Errors
+    All errors return a uniform JSON body:
+    ```json
+    {
+      "error": {
+        "type": "authentication_error",
+        "message": "Invalid or revoked API key"
+      }
+    }
+    ```
+    | `type`               | HTTP  | Meaning                              |
+    |----------------------|-------|--------------------------------------|
+    | `authentication_error` | 401 | Bad or missing API key               |
+    | `authorization_error`  | 403 | Key type not permitted for endpoint  |
+    | `invalid_request_error`| 400 | Validation failure                   |
+    | `not_found_error`      | 404 | Resource does not exist              |
+    | `resource_expired`     | 410 | Checkout session expired             |
+    | `rate_limit_error`     | 429 | Too many requests                    |
+    | `internal_error`       | 500 | Server fault                         |
+
+    ## Idempotency
+    (Planned) POST endpoints accept an `Idempotency-Key` header to safely retry
+    without double-creating resources. Not yet enforced server-side.
+
+    ## Pagination
+    List endpoints use offset-based pagination:
+    - `limit` — page size (default 20, max 100)
+    - `offset` — zero-based offset
+    - `has_more` — boolean in the response indicating more results exist
+
+  contact:
+    name: AirPay Support
+    url: https://airpay-frontend.arindam92.workers.dev
+  license:
+    name: MIT
+
+servers:
+  - url: https://airpay-server.arindam92.workers.dev
+    description: Production
+  - url: http://localhost:8787
+    description: Local development
+
+tags:
+  - name: Checkout Sessions
+    description: Create and manage checkout sessions for accepting payments
+  - name: Payments
+    description: Query payment records and their blockchain verification status
+  - name: Webhooks
+    description: Webhook event types and signature verification
+
+security:
+  - BearerAuth: []
+
+paths:
+  # ---------------------------------------------------------------------------
+  # Checkout Sessions
+  # ---------------------------------------------------------------------------
+  /api/v1/checkout/sessions:
+    post:
+      tags: [Checkout Sessions]
+      operationId: createCheckoutSession
+      summary: Create a checkout session
+      description: |
+        Creates a new checkout session for a buyer to pay into. Requires a
+        **secret key**. The returned `id` is used to build a checkout URL or
+        to drive a custom payment flow.
+
+        Fee calculation:
+        - `fee_type: "part_of"` — the fee is deducted from `amount`; the buyer
+          pays `amount` and the merchant receives `merchant_amount`.
+        - `fee_type: "on_top"` — the fee is added on top; the buyer pays
+          `amount + fee_amount` and the merchant receives `amount`.
+      security:
+        - BearerAuth: ["secret"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCheckoutSessionRequest"
+            examples:
+              simple:
+                value:
+                  product_name: "Pro Plan — Annual"
+                  amount: 4999
+                  currency: USDC
+                  network: Solana
+                  collect_email: true
+      responses:
+        "201":
+          description: Session created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckoutSession"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
+        "403":
+          $ref: "#/components/responses/AuthorizationError"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/checkout/sessions/{id}:
+    get:
+      tags: [Checkout Sessions]
+      operationId: retrieveCheckoutSession
+      summary: Retrieve a checkout session
+      description: |
+        Fetches details for a single checkout session. Accepts a **publishable**
+        or **secret** key — safe to call from a client-side checkout page.
+      security:
+        - BearerAuth: ["publishable", "secret"]
+      parameters:
+        - $ref: "#/components/parameters/ResourceId"
+      responses:
+        "200":
+          description: Session details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckoutSession"
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
+        "403":
+          $ref: "#/components/responses/AuthorizationError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "410":
+          $ref: "#/components/responses/ResourceExpired"
+
+  /api/v1/checkout/sessions/{id}/confirm:
+    post:
+      tags: [Checkout Sessions]
+      operationId: confirmCheckoutSession
+      summary: Confirm a payment (buyer-side)
+      description: |
+        Submits the on-chain transaction for a checkout session. This endpoint
+        is **unauthenticated** — it is called by the buyer's wallet after they
+        sign and broadcast the payment transaction. The server records the
+        payment and begins blockchain verification via a background cron.
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/ResourceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfirmPaymentRequest"
+      responses:
+        "201":
+          description: Payment recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentConfirmation"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "409":
+          description: Session already processed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "410":
+          $ref: "#/components/responses/ResourceExpired"
+
+  # ---------------------------------------------------------------------------
+  # Payments
+  # ---------------------------------------------------------------------------
+  /api/v1/payments/{id}/status:
+    get:
+      tags: [Payments]
+      operationId: getPaymentStatus
+      summary: Get payment status (lightweight)
+      description: |
+        Returns a minimal status object suitable for polling from a checkout
+        page. Accepts **publishable** or **secret** keys.
+      security:
+        - BearerAuth: ["publishable", "secret"]
+      parameters:
+        - $ref: "#/components/parameters/ResourceId"
+      responses:
+        "200":
+          description: Payment status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentStatus"
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+
+  /api/v1/payments/{id}:
+    get:
+      tags: [Payments]
+      operationId: retrievePayment
+      summary: Retrieve a payment (full detail)
+      description: |
+        Returns the full payment record with all fields, including webhook
+        delivery info and buyer details. Requires a **secret key**.
+      security:
+        - BearerAuth: ["secret"]
+      parameters:
+        - $ref: "#/components/parameters/ResourceId"
+      responses:
+        "200":
+          description: Payment detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Payment"
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
+        "403":
+          $ref: "#/components/responses/AuthorizationError"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+
+  /api/v1/payments:
+    get:
+      tags: [Payments]
+      operationId: listPayments
+      summary: List payments
+      description: |
+        Returns a paginated list of payments for the authenticated merchant,
+        newest first. Requires a **secret key**.
+      security:
+        - BearerAuth: ["secret"]
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+        - name: network
+          in: query
+          schema:
+            $ref: "#/components/schemas/Network"
+          required: false
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/PaymentStatusValue"
+          required: false
+      responses:
+        "200":
+          description: Paginated list of payments
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentList"
+        "401":
+          $ref: "#/components/responses/AuthenticationError"
+        "403":
+          $ref: "#/components/responses/AuthorizationError"
+
+# ---------------------------------------------------------------------------
+# Components
+# ---------------------------------------------------------------------------
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: |
+        AirPay API key. Prefix determines type and permissions:
+        - `sk_test_` / `sk_live_` — secret key (full access, server-side only)
+        - `pk_test_` / `pk_live_` — publishable key (checkout + status only)
+
+  parameters:
+    ResourceId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: UUID of the resource
+
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+      description: Number of items per page
+
+    Offset:
+      name: offset
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+      description: Zero-based offset for pagination
+
+  responses:
+    AuthenticationError:
+      description: Authentication failed
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              type: authentication_error
+              message: "Missing or malformed Authorization header. Expected: Bearer <api_key>"
+
+    AuthorizationError:
+      description: Key type not permitted for this endpoint
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              type: authorization_error
+              message: "This endpoint requires a secret key"
+
+    InvalidRequest:
+      description: Validation failed
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              type: invalid_request_error
+              message: "Wallet not configured for Solana"
+
+    NotFoundError:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              type: not_found_error
+              message: "Checkout session not found"
+
+    ResourceExpired:
+      description: Resource has expired
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              type: resource_expired
+              message: "Checkout session expired"
+
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+  schemas:
+    # -------------------------------------------------------------------------
+    # Enums
+    # -------------------------------------------------------------------------
+    Currency:
+      type: string
+      enum: [USDC, USDT, EURC]
+      description: Stablecoin currency for the payment
+
+    Network:
+      type: string
+      enum: [Solana, Arbitrum, Polygon, Ethereum]
+      description: Blockchain network for the payment
+
+    FeeType:
+      type: string
+      enum: [part_of, on_top]
+      description: |
+        How the fee is applied:
+        - `part_of` — fee deducted from amount; merchant receives `amount - fee`
+        - `on_top` — fee added to amount; buyer pays `amount + fee`
+
+    CheckoutSessionStatus:
+      type: string
+      enum: [pending, completed, expired]
+      description: Lifecycle state of a checkout session
+
+    PaymentStatusValue:
+      type: string
+      enum: [pending_confirmation, completed, settled, failed]
+      description: High-level payment status
+
+    BlockchainStatus:
+      type: string
+      enum: [pending, confirmed, finalized, failed]
+      description: On-chain verification status
+
+    # -------------------------------------------------------------------------
+    # Core resources
+    # -------------------------------------------------------------------------
+    CheckoutSession:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique identifier for the session
+        object:
+          type: string
+          enum: [checkout.session]
+          description: Object type discriminator
+        product_name:
+          type: string
+          description: Name of the product being sold
+        amount:
+          type: integer
+          description: Total amount in cents (what the buyer pays)
+        fee_amount:
+          type: integer
+          description: AirPay fee in cents
+        merchant_amount:
+          type: integer
+          description: Amount the merchant receives in cents
+        currency:
+          $ref: "#/components/schemas/Currency"
+        network:
+          $ref: "#/components/schemas/Network"
+        fee_type:
+          $ref: "#/components/schemas/FeeType"
+        fee_percentage:
+          type: integer
+          description: Fee rate in basis points (200 = 2%)
+        merchant_wallet_address:
+          type: string
+          description: Merchant's wallet address on the selected network
+        company_wallet_address:
+          type: string
+          description: AirPay's fee-collection wallet address on the network
+        collect_email:
+          type: boolean
+          description: Whether the checkout flow should collect the buyer's email
+        status:
+          $ref: "#/components/schemas/CheckoutSessionStatus"
+        expires_at:
+          type: integer
+          format: int64
+          description: Unix timestamp (ms) when the session expires
+        created_at:
+          type: integer
+          format: int64
+          description: Unix timestamp (ms) when the session was created
+        metadata:
+          type: object
+          nullable: true
+          additionalProperties:
+            type: string
+          description: Arbitrary key-value metadata set by the merchant
+      required:
+        - id
+        - object
+        - product_name
+        - amount
+        - fee_amount
+        - merchant_amount
+        - currency
+        - network
+        - fee_type
+        - merchant_wallet_address
+        - company_wallet_address
+        - collect_email
+        - status
+        - expires_at
+        - created_at
+
+    Payment:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        object:
+          type: string
+          enum: [payment]
+        checkout_session_id:
+          type: string
+          format: uuid
+        tx_hash:
+          type: string
+          description: On-chain transaction hash
+        buyer_address:
+          type: string
+          nullable: true
+          description: Buyer's wallet address
+        amount:
+          type: integer
+          description: Total amount in cents
+        fee_amount:
+          type: integer
+          description: AirPay fee in cents
+        merchant_amount:
+          type: integer
+          description: Merchant's share in cents
+        status:
+          $ref: "#/components/schemas/PaymentStatusValue"
+        blockchain_status:
+          $ref: "#/components/schemas/BlockchainStatus"
+        confirmations:
+          type: integer
+          description: Number of on-chain confirmations
+        retry_count:
+          type: integer
+          description: How many verification retries have been attempted
+        failure_reason:
+          type: string
+          nullable: true
+          description: Reason for failure if status is `failed`
+        webhook_delivered:
+          type: boolean
+          description: Whether the most recent webhook delivery succeeded (2xx)
+        webhook_delivery_count:
+          type: integer
+          description: Total webhook delivery attempts for this payment
+        product_name:
+          type: string
+          description: Product name from the parent checkout session
+        currency:
+          $ref: "#/components/schemas/Currency"
+        network:
+          $ref: "#/components/schemas/Network"
+        buyer_email:
+          type: string
+          format: email
+          nullable: true
+          description: Buyer's email if collected during checkout
+        settled_at:
+          type: integer
+          format: int64
+          nullable: true
+          description: Unix timestamp (ms) when the payment was settled on-chain
+        created_at:
+          type: integer
+          format: int64
+        updated_at:
+          type: integer
+          format: int64
+      required:
+        - id
+        - object
+        - checkout_session_id
+        - tx_hash
+        - amount
+        - fee_amount
+        - merchant_amount
+        - status
+        - blockchain_status
+        - confirmations
+        - webhook_delivered
+        - webhook_delivery_count
+        - product_name
+        - currency
+        - network
+        - created_at
+        - updated_at
+
+    PaymentStatus:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        object:
+          type: string
+          enum: [payment.status]
+        status:
+          $ref: "#/components/schemas/PaymentStatusValue"
+        blockchain_status:
+          $ref: "#/components/schemas/BlockchainStatus"
+        confirmations:
+          type: integer
+        tx_hash:
+          type: string
+        retry_count:
+          type: integer
+        failure_reason:
+          type: string
+          nullable: true
+        settled_at:
+          type: integer
+          format: int64
+          nullable: true
+      required:
+        - id
+        - object
+        - status
+        - blockchain_status
+        - confirmations
+        - tx_hash
+        - retry_count
+
+    PaymentConfirmation:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: ID of the newly created payment record
+        object:
+          type: string
+          enum: [payment]
+        checkout_session_id:
+          type: string
+          format: uuid
+        tx_hash:
+          type: string
+        status:
+          type: string
+          enum: [pending_confirmation]
+        blockchain_status:
+          type: string
+          enum: [pending]
+        message:
+          type: string
+          description: Human-readable status message
+      required:
+        - id
+        - object
+        - checkout_session_id
+        - tx_hash
+        - status
+        - blockchain_status
+        - message
+
+    PaymentList:
+      type: object
+      properties:
+        object:
+          type: string
+          enum: [list]
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Payment"
+        limit:
+          type: integer
+        offset:
+          type: integer
+        has_more:
+          type: boolean
+      required:
+        - object
+        - data
+        - limit
+        - offset
+        - has_more
+
+    # -------------------------------------------------------------------------
+    # Request bodies
+    # -------------------------------------------------------------------------
+    CreateCheckoutSessionRequest:
+      type: object
+      properties:
+        product_name:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Name of the product or service
+        amount:
+          type: integer
+          minimum: 1
+          maximum: 100000000
+          description: Amount in cents (e.g., 4999 = $49.99). Max $1,000,000.
+        currency:
+          $ref: "#/components/schemas/Currency"
+        network:
+          $ref: "#/components/schemas/Network"
+        collect_email:
+          type: boolean
+          default: false
+          description: Whether to collect the buyer's email at checkout
+        expires_in:
+          type: integer
+          minimum: 1
+          maximum: 3600
+          default: 1800
+          description: Session lifetime in seconds (default 30 min, max 1 hour)
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+          description: Arbitrary key-value metadata (max 20 keys, not yet enforced)
+      required:
+        - product_name
+        - amount
+        - currency
+        - network
+
+    ConfirmPaymentRequest:
+      type: object
+      properties:
+        tx_hash:
+          type: string
+          minLength: 10
+          maxLength: 200
+          description: On-chain transaction hash
+        buyer_address:
+          type: string
+          minLength: 10
+          maxLength: 100
+          description: Buyer's wallet address
+        signature:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: Buyer's signature proving ownership of the sending wallet
+        buyer_email:
+          type: string
+          format: email
+          description: Buyer's email (required if checkout session has collect_email)
+      required:
+        - tx_hash
+        - buyer_address
+        - signature
+
+    # -------------------------------------------------------------------------
+    # Webhook events
+    # -------------------------------------------------------------------------
+    WebhookEvent:
+      type: object
+      description: |
+        The payload delivered to the merchant's webhook URL. Sent as the HTTP
+        request body (JSON). The `AirPay-Signature` header contains an
+        HMAC-SHA256 signature that the SDK verifies using the merchant's
+        `whsec_` signing key.
+      properties:
+        id:
+          type: string
+          pattern: "^evt_"
+          description: Unique event ID (use for idempotency / deduplication)
+        object:
+          type: string
+          enum: [event]
+        event:
+          type: string
+          enum:
+            - payment.confirmed
+            - payment.failed
+            - payout.completed
+            - payment.refunded
+          description: The type of event that occurred
+        payment_id:
+          type: string
+          format: uuid
+        checkout_session_id:
+          type: string
+          format: uuid
+        amount:
+          type: integer
+          description: Total amount in cents
+        fee_amount:
+          type: integer
+        merchant_amount:
+          type: integer
+        currency:
+          $ref: "#/components/schemas/Currency"
+        network:
+          $ref: "#/components/schemas/Network"
+        tx_hash:
+          type: string
+        status:
+          $ref: "#/components/schemas/PaymentStatusValue"
+        blockchain_status:
+          $ref: "#/components/schemas/BlockchainStatus"
+        confirmations:
+          type: integer
+        created:
+          type: integer
+          format: int64
+          description: Unix timestamp (ms) when the event was created
+      required:
+        - id
+        - object
+        - event
+        - payment_id
+        - checkout_session_id
+        - amount
+        - fee_amount
+        - merchant_amount
+        - tx_hash
+        - status
+        - blockchain_status
+        - confirmations
+        - created
+
+    WebhookSignatureHeader:
+      type: string
+      description: |
+        Format: `t=<unix_timestamp>,v1=<hex_hmac_sha256>`
+
+        The signature is computed as HMAC-SHA256 over the string
+        `"<timestamp>.<raw_body>"` keyed with the merchant's `whsec_` signing
+        key. To verify:
+        1. Split the header on `,` to extract `t` and `v1`.
+        2. Recompute HMAC-SHA256 of `"<t>.<raw_body>"` with the `whsec_` key.
+        3. Compare in constant time with `v1`.
+        4. Optionally reject if `t` is older than 5 minutes (replay protection).
+      example: "t=1719331200,v1=5b7c3d2e8f4a1e6b9c0d3a5f7e2b8c4d1a6f3e9b2c7d4a8f1e5b3c6d9a2f7e4b"
+
+    # -------------------------------------------------------------------------
+    # Error
+    # -------------------------------------------------------------------------
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            type:
+              type: string
+              enum:
+                - authentication_error
+                - authorization_error
+                - invalid_request_error
+                - not_found_error
+                - resource_expired
+                - rate_limit_error
+                - internal_error
+            message:
+              type: string
+          required:
+            - type
+            - message
+      required:
+        - error

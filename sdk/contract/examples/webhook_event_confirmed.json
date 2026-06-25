@@ -1,0 +1,17 @@
+{
+  "id": "evt_550e8400-e29b-41d4-a716-446655440002",
+  "object": "event",
+  "event": "payment.confirmed",
+  "payment_id": "660e8400-e29b-41d4-a716-446655440001",
+  "checkout_session_id": "550e8400-e29b-41d4-a716-446655440000",
+  "amount": 4999,
+  "fee_amount": 100,
+  "merchant_amount": 4899,
+  "currency": "USDC",
+  "network": "Solana",
+  "tx_hash": "5as...long_hash...abc",
+  "status": "completed",
+  "blockchain_status": "finalized",
+  "confirmations": 12,
+  "created": 1719331260000
+}

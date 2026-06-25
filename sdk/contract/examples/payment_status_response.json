@@ -1,0 +1,11 @@
+{
+  "id": "660e8400-e29b-41d4-a716-446655440001",
+  "object": "payment.status",
+  "status": "completed",
+  "blockchain_status": "finalized",
+  "confirmations": 12,
+  "tx_hash": "5as...long_hash...abc",
+  "retry_count": 0,
+  "failure_reason": null,
+  "settled_at": 1719331260000
+}

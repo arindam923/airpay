@@ -174,34 +174,14 @@ export const webhookEventSubscriptions = sqliteTable("webhook_event_subscription
 })
 
 // Settlement settings (1:1 with merchant profile)
+// NOTE: AirPay is non-custodial. Funds settle directly to merchant wallets on-chain.
+// This table only stores merchant preferences, not sweep/gas rules.
 export const settlementSettings = sqliteTable("settlement_settings", {
   id: text("id").primaryKey(),
   merchantProfileId: text("merchant_profile_id")
     .notNull()
     .unique()
     .references(() => merchantProfiles.id, { onDelete: "cascade" }),
-  autoSettle: integer("auto_settle", { mode: "boolean" }).notNull().default(true),
-  sweepThresholdCents: integer("sweep_threshold_cents").notNull().default(100000), // $1,000
-  sweepSchedule: text("sweep_schedule").notNull().default("daily"), // 'instant' | 'daily' | 'weekly'
-  sponsorGas: integer("sponsor_gas", { mode: "boolean" }).notNull().default(true),
-  gasCapCents: integer("gas_cap_cents").notNull().default(25000), // $250
   enabledChains: text("enabled_chains").notNull().default('["Solana","Arbitrum","Polygon"]'),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
-})
-
-// Sweep logs (history of auto-sweeps to merchant treasury vault)
-export const sweepLogs = sqliteTable("sweep_logs", {
-  id: text("id").primaryKey(),
-  merchantProfileId: text("merchant_profile_id")
-    .notNull()
-    .references(() => merchantProfiles.id, { onDelete: "cascade" }),
-  paymentIds: text("payment_ids").notNull(), // JSON array
-  amount: integer("amount").notNull(), // cents
-  currency: text("currency").notNull(),
-  network: text("network").notNull(),
-  destinationAddress: text("destination_address").notNull(),
-  txHash: text("tx_hash"),
-  status: text("status").notNull().default("completed"), // 'pending' | 'completed' | 'failed'
-  sweptAt: integer("swept_at", { mode: "timestamp_ms" }).notNull(),
-  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 })

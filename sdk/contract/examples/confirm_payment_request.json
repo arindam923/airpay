@@ -1,0 +1,6 @@
+{
+  "tx_hash": "5as...long_hash...abc",
+  "buyer_address": "9xKXtg2CW87d97TXJSDpbD5jBkheTqA3g4o2x9tQ2pNv",
+  "signature": "base64_encoded_signature_here",
+  "buyer_email": "buyer@example.com"
+}

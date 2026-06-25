@@ -277,14 +277,37 @@ function CheckoutPageInner() {
                     <h2 className="text-base font-bold text-white font-mono">
                       {session.productName}
                     </h2>
-                    <div className="flex items-center justify-center gap-2 mt-2">
-                      <span className="text-2xl font-bold font-mono text-white">
-                        ${formatAmount(session.amount)}
-                      </span>
-                      <span className="text-[10px] font-mono text-neutral-500 bg-neutral-950 border border-neutral-900 px-2 py-0.5 rounded">
-                        {session.currency}
-                      </span>
-                    </div>
+
+                    {session.feeType === "on_top" ? (
+                      <div className="space-y-1 mt-2">
+                        <div className="flex items-center justify-center gap-2">
+                          <span className="text-2xl font-bold font-mono text-white">
+                            ${formatAmount(session.amount)}
+                          </span>
+                          <span className="text-[10px] font-mono text-neutral-500 bg-neutral-950 border border-neutral-900 px-2 py-0.5 rounded">
+                            {session.currency}
+                          </span>
+                        </div>
+                        <div className="text-[9px] font-mono text-neutral-500">
+                          Item ${formatAmount(session.merchantAmount)} + Fee ${formatAmount(session.feeAmount)}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-1 mt-2">
+                        <div className="flex items-center justify-center gap-2">
+                          <span className="text-2xl font-bold font-mono text-white">
+                            ${formatAmount(session.amount)}
+                          </span>
+                          <span className="text-[10px] font-mono text-neutral-500 bg-neutral-950 border border-neutral-900 px-2 py-0.5 rounded">
+                            {session.currency}
+                          </span>
+                        </div>
+                        <div className="text-[9px] font-mono text-neutral-500">
+                          Includes ${formatAmount(session.feeAmount)} platform fee
+                        </div>
+                      </div>
+                    )}
+
                     <div className="flex items-center justify-center gap-1 mt-1">
                       <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
                       <span className="text-[9px] font-mono text-neutral-500">{session.network}</span>
@@ -399,21 +422,42 @@ function CheckoutPageInner() {
                       <span className="text-[10px] font-mono text-white font-bold">{session.productName}</span>
                     </div>
                     <div className="flex justify-between items-center">
-                      <span className="text-[10px] font-mono text-neutral-500">Amount</span>
-                      <span className="text-[10px] font-mono text-white font-bold">${formatAmount(session.amount)} {session.currency}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
                       <span className="text-[10px] font-mono text-neutral-500">Network</span>
                       <span className="text-[10px] font-mono text-cyan-400 font-bold">{session.network}</span>
                     </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-[10px] font-mono text-neutral-500">Fee ({session.feeType === "on_top" ? "on top" : "part of"})</span>
-                      <span className="text-[10px] font-mono text-white">${formatAmount(session.feeAmount)}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-[10px] font-mono text-neutral-500">Merchant gets</span>
-                      <span className="text-[10px] font-mono text-emerald-400 font-bold">${formatAmount(session.merchantAmount)}</span>
-                    </div>
+
+                    {session.feeType === "on_top" ? (
+                      <>
+                        <div className="flex justify-between items-center">
+                          <span className="text-[10px] font-mono text-neutral-500">Item price</span>
+                          <span className="text-[10px] font-mono text-white font-bold">${formatAmount(session.merchantAmount)} {session.currency}</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-[10px] font-mono text-neutral-500">Platform fee (2%)</span>
+                          <span className="text-[10px] font-mono text-white">${formatAmount(session.feeAmount)}</span>
+                        </div>
+                        <div className="border-t border-neutral-900 pt-2 flex justify-between items-center">
+                          <span className="text-[10px] font-mono text-neutral-400 font-bold">Total you pay</span>
+                          <span className="text-[10px] font-mono text-white font-bold">${formatAmount(session.amount)} {session.currency}</span>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="flex justify-between items-center">
+                          <span className="text-[10px] font-mono text-neutral-500">You pay</span>
+                          <span className="text-[10px] font-mono text-white font-bold">${formatAmount(session.amount)} {session.currency}</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-[10px] font-mono text-neutral-500">Platform fee (2%, deducted)</span>
+                          <span className="text-[10px] font-mono text-white">${formatAmount(session.feeAmount)}</span>
+                        </div>
+                        <div className="border-t border-neutral-900 pt-2 flex justify-between items-center">
+                          <span className="text-[10px] font-mono text-neutral-400 font-bold">Merchant receives</span>
+                          <span className="text-[10px] font-mono text-emerald-400 font-bold">${formatAmount(session.merchantAmount)}</span>
+                        </div>
+                      </>
+                    )}
+
                     <div className="flex justify-between items-center">
                       <span className="text-[10px] font-mono text-neutral-500">To</span>
                       <span className="text-[10px] font-mono text-white truncate max-w-[140px]">{session.merchantWalletAddress}</span>

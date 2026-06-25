@@ -1,0 +1,9 @@
+{
+  "id": "660e8400-e29b-41d4-a716-446655440001",
+  "object": "payment",
+  "checkout_session_id": "550e8400-e29b-41d4-a716-446655440000",
+  "tx_hash": "5as...long_hash...abc",
+  "status": "pending_confirmation",
+  "blockchain_status": "pending",
+  "message": "Payment recorded. Blockchain verification in progress."
+}

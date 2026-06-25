@@ -66,7 +66,7 @@ export async function handleBlockchainVerification(c: any) {
             .limit(1)
 
           if (profile && profile.length > 0 && profile[0].webhookUrl) {
-            await sendWebhook(profile[0], payment, "payment.confirmed", c.env)
+            await sendWebhook(profile[0], payment, session[0], "payment.confirmed", c.env)
           }
         }
       } else if (verified.failed) {
@@ -90,7 +90,7 @@ export async function handleBlockchainVerification(c: any) {
             .limit(1)
 
           if (profile && profile.length > 0 && profile[0].webhookUrl) {
-            await sendWebhook(profile[0], payment, "payment.failed", c.env)
+            await sendWebhook(profile[0], payment, session[0], "payment.failed", c.env)
           }
         }
       } else {
@@ -244,35 +244,54 @@ async function getEvmConfirmations(rpcUrl: string, txBlockNumber: number) {
   }
 }
 
-async function sendWebhook(profile: any, payment: any, event: string, env: any) {
+async function sendWebhook(
+  profile: any,
+  payment: any,
+  session: any,
+  event: string,
+  env: any,
+) {
+  // Build the event payload. currency/network live on the checkout session,
+  // not the payment row — without the session these would be undefined.
   const payload = {
+    id: `evt_${crypto.randomUUID()}`,
+    object: "event",
     event,
     payment_id: payment.id,
     checkout_session_id: payment.checkoutSessionId,
     amount: payment.amount,
     fee_amount: payment.feeAmount,
     merchant_amount: payment.merchantAmount,
-    currency: payment.currency,
-    network: payment.network,
+    currency: session?.currency,
+    network: session?.network,
     tx_hash: payment.txHash,
     status: payment.status,
-    timestamp: new Date().toISOString(),
+    blockchain_status: payment.blockchainStatus,
+    confirmations: payment.confirmations,
+    created: Date.now(),
   }
+
+  const body = JSON.stringify(payload)
+  const timestamp = Math.floor(Date.now() / 1000)
+  const signingSecret = profile.webhookSecret || ""
+
+  // Stripe-style signature: HMAC-SHA256 over "<timestamp>.<body>"
+  const signature = await signWebhook(body, timestamp, signingSecret)
+  const signatureHeader = `t=${timestamp},v1=${signature}`
 
   try {
     const response = await fetch(profile.webhookUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-Webhook-Secret": profile.webhookSecret || "",
-        "X-Webhook-Event": event,
+        "AirPay-Signature": signatureHeader,
+        "AirPay-Event": event,
       },
-      body: JSON.stringify(payload),
+      body,
     })
 
     const responseBody = await response.text()
 
-    // Store webhook delivery
     const db = getDB(env.DB)
     await db.insert(schema.webhookDeliveries).values({
       id: crypto.randomUUID(),
@@ -280,13 +299,12 @@ async function sendWebhook(profile: any, payment: any, event: string, env: any) 
       event,
       url: profile.webhookUrl,
       statusCode: response.status,
-      responseBody: responseBody.slice(0, 1000), // limit size
+      responseBody: responseBody.slice(0, 1000),
       attempt: payment.webhookDeliveryCount + 1,
       deliveredAt: new Date(),
       createdAt: new Date(),
     })
 
-    // Update payment webhook status
     await db
       .update(schema.payment)
       .set({
@@ -298,4 +316,21 @@ async function sendWebhook(profile: any, payment: any, event: string, env: any) 
   } catch (err) {
     console.error(`Webhook delivery failed for payment ${payment.id}:`, err)
   }
+}
+
+/**
+ * Compute the v1 HMAC-SHA256 signature for a webhook body.
+ * Signed payload: "<timestamp>.<body>" keyed with the merchant's whsec_.
+ */
+async function signWebhook(body: string, timestamp: number, secret: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  )
+  const data = new TextEncoder().encode(`${timestamp}.${body}`)
+  const sig = await crypto.subtle.sign("HMAC", key, data)
+  return Array.from(new Uint8Array(sig), b => b.toString(16).padStart(2, "0")).join("")
 }

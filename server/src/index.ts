@@ -3,7 +3,11 @@ import { cors } from "hono/cors"
 import { createAuth } from "./auth"
 import checkoutRoutes from "./routes/checkout"
 import merchantRoutes from "./routes/merchant"
+import v1Routes from "./routes/v1/checkout"
+import * as schema from "./db/schema"
 import { handleBlockchainVerification } from "./cron"
+
+export type MerchantProfile = typeof schema.merchantProfiles.$inferSelect
 
 export type Env = {
   Bindings: {
@@ -18,6 +22,16 @@ export type Env = {
     COMPANY_ARBITRUM_WALLET?: string
     COMPANY_POLYGON_WALLET?: string
     COMPANY_ETHEREUM_WALLET?: string
+  }
+  Variables: {
+    merchantProfile: MerchantProfile
+    apiKey: {
+      id: string
+      type: string
+      environment: string
+      prefix: string
+      lastFour: string
+    }
   }
 }
 
@@ -59,6 +73,9 @@ app.route("/api/checkout", checkoutRoutes)
 
 // Mount merchant routes
 app.route("/api/merchant", merchantRoutes)
+
+// Mount versioned public API (used by the official SDKs)
+app.route("/api/v1", v1Routes)
 
 // Cron trigger handler for blockchain verification
 export default {

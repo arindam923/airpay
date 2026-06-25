@@ -121,6 +121,15 @@ async function ensureApiKeys(db: any, merchantProfileId: string) {
       lastUsedAt: null,
       revokedAt: null,
     })
+
+    // The signing key (whsec_…) doubles as the webhook signing secret.
+    // Store the full value on the profile so sendWebhook can HMAC with it.
+    if (s.type === "signing") {
+      await db
+        .update(schema.merchantProfiles)
+        .set({ webhookSecret: full, updatedAt: new Date(now) })
+        .where(eq(schema.merchantProfiles.id, merchantProfileId))
+    }
   }
 
   return db
@@ -142,11 +151,6 @@ async function ensureSettlementSettings(db: any, merchantProfileId: string) {
   await db.insert(schema.settlementSettings).values({
     id,
     merchantProfileId,
-    autoSettle: true,
-    sweepThresholdCents: 100000,
-    sweepSchedule: "daily",
-    sponsorGas: true,
-    gasCapCents: 25000,
     enabledChains: '["Solana","Arbitrum","Polygon"]',
     updatedAt: new Date(now),
   })
@@ -194,7 +198,6 @@ const createProfileSchema = z.object({
   businessName: z.string().min(1).max(200),
   feeType: z.enum(["part_of", "on_top"]).default("part_of"),
   webhookUrl: z.string().url().optional(),
-  webhookSecret: z.string().max(500).optional(),
   wallets: z.array(z.object({
     network: z.enum(["Solana", "Arbitrum", "Polygon", "Ethereum"]),
     walletAddress: z.string().min(10).max(100),
@@ -220,7 +223,7 @@ merchantApp.post("/profile", zValidator("json", createProfileSchema), async (c) 
     feeType: body.feeType,
     feePercentage: 200,
     webhookUrl: body.webhookUrl ?? null,
-    webhookSecret: body.webhookSecret ?? null,
+    webhookSecret: null,
     sandboxMode: true,
     createdAt: new Date(now),
     updatedAt: new Date(now),
@@ -286,7 +289,6 @@ const updateProfileSchema = z.object({
   businessName: z.string().min(1).max(200).optional(),
   feeType: z.enum(["part_of", "on_top"]).optional(),
   webhookUrl: z.string().url().optional().nullable(),
-  webhookSecret: z.string().max(500).optional().nullable(),
   wallets: z.array(z.object({
     network: z.enum(["Solana", "Arbitrum", "Polygon", "Ethereum"]),
     walletAddress: z.string().min(10).max(100),
@@ -312,7 +314,6 @@ merchantApp.put("/profile", zValidator("json", updateProfileSchema), async (c) =
       ...(body.businessName && { businessName: body.businessName }),
       ...(body.feeType && { feeType: body.feeType }),
       ...(body.webhookUrl !== undefined && { webhookUrl: body.webhookUrl }),
-      ...(body.webhookSecret !== undefined && { webhookSecret: body.webhookSecret }),
       updatedAt: new Date(now),
     })
     .where(eq(schema.merchantProfiles.id, profile.id))
@@ -676,6 +677,14 @@ merchantApp.post("/api-keys/regenerate", zValidator("json", regenerateSchema), a
     revokedAt: null,
   })
 
+  // Keep webhookSecret in sync when the signing key is regenerated.
+  if (body.type === "signing") {
+    await db
+      .update(schema.merchantProfiles)
+      .set({ webhookSecret: full, updatedAt: new Date(now) })
+      .where(eq(schema.merchantProfiles.id, profile.id))
+  }
+
   return c.json({
     id,
     type: body.type,
@@ -856,11 +865,6 @@ merchantApp.get("/settlement-settings", async (c) => {
 
 // PUT /api/merchant/settlement-settings
 const settlementSettingsSchema = z.object({
-  autoSettle: z.boolean().optional(),
-  sweepThresholdCents: z.number().int().nonnegative().optional(),
-  sweepSchedule: z.enum(["instant", "daily", "weekly"]).optional(),
-  sponsorGas: z.boolean().optional(),
-  gasCapCents: z.number().int().nonnegative().optional(),
   enabledChains: z.array(z.enum(["Solana", "Arbitrum", "Polygon", "Ethereum"])).optional(),
 })
 
@@ -875,11 +879,6 @@ merchantApp.put("/settlement-settings", zValidator("json", settlementSettingsSch
   const now = Date.now()
 
   const update: any = { updatedAt: new Date(now) }
-  if (body.autoSettle !== undefined) update.autoSettle = body.autoSettle
-  if (body.sweepThresholdCents !== undefined) update.sweepThresholdCents = body.sweepThresholdCents
-  if (body.sweepSchedule !== undefined) update.sweepSchedule = body.sweepSchedule
-  if (body.sponsorGas !== undefined) update.sponsorGas = body.sponsorGas
-  if (body.gasCapCents !== undefined) update.gasCapCents = body.gasCapCents
   if (body.enabledChains !== undefined) update.enabledChains = JSON.stringify(body.enabledChains)
 
   await db
@@ -904,45 +903,18 @@ function formatSettlementSettings(s: any) {
   }
   return {
     id: s.id,
-    autoSettle: s.autoSettle,
-    sweepThresholdCents: s.sweepThresholdCents,
-    sweepSchedule: s.sweepSchedule,
-    sponsorGas: s.sponsorGas,
-    gasCapCents: s.gasCapCents,
     enabledChains,
     updatedAt: s.updatedAt.getTime(),
   }
 }
 
 // GET /api/merchant/sweep-logs
+// NOTE: AirPay is non-custodial — funds settle directly on-chain.
+// There are no sweep operations. This endpoint returns empty for backward compatibility.
 merchantApp.get("/sweep-logs", async (c) => {
-  const { user, profile } = await getMerchantProfile(c)
+  const { user } = await getMerchantProfile(c)
   if (!user) return c.json({ error: "Unauthorized" }, 401)
-  if (!profile) return c.json({ error: "Merchant profile not found" }, 404)
-
-  const limit = Math.min(parseInt(c.req.query("limit") || "20"), 100)
-  const db = getDB(c.env.DB)
-  const rows = await db
-    .select()
-    .from(schema.sweepLogs)
-    .where(eq(schema.sweepLogs.merchantProfileId, profile.id))
-    .orderBy(desc(schema.sweepLogs.sweptAt))
-    .limit(limit)
-
-  return c.json({
-    logs: rows.map(r => ({
-      id: r.id,
-      paymentIds: r.paymentIds,
-      amount: r.amount,
-      currency: r.currency,
-      network: r.network,
-      destinationAddress: r.destinationAddress,
-      txHash: r.txHash,
-      status: r.status,
-      sweptAt: r.sweptAt.getTime(),
-      createdAt: r.createdAt.getTime(),
-    })),
-  })
+  return c.json({ logs: [] })
 })
 
 export default merchantApp

@@ -2,9 +2,9 @@
 
 import React, { useState, useEffect, useCallback } from "react"
 import { motion } from "framer-motion"
-import { 
-  Sliders, Wallet2, Shield, Settings, 
-  CheckCircle2, Activity, RefreshCw
+import {
+  Wallet2, Shield, CheckCircle2, RefreshCw,
+  Zap, Globe, Info
 } from "lucide-react"
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8787"
@@ -16,24 +16,8 @@ interface Wallet {
 
 interface SettlementSettings {
   id: string
-  autoSettle: boolean
-  sweepThresholdCents: number
-  sweepSchedule: string
-  sponsorGas: boolean
-  gasCapCents: number
   enabledChains: string[]
   updatedAt: number
-}
-
-interface SweepLog {
-  id: string
-  amount: number
-  currency: string
-  network: string
-  destinationAddress: string
-  txHash: string | null
-  status: string
-  sweptAt: number
 }
 
 export default function SettlementsTab() {
@@ -51,9 +35,6 @@ export default function SettlementsTab() {
   const [isLoadingSettings, setIsLoadingSettings] = useState(true)
   const [isSavingSettings, setIsSavingSettings] = useState(false)
   const [savedAt, setSavedAt] = useState<number | null>(null)
-
-  const [sweepLogs, setSweepLogs] = useState<SweepLog[]>([])
-  const [isLoadingLogs, setIsLoadingLogs] = useState(true)
 
   const fetchWallets = useCallback(async () => {
     setIsLoadingWallets(true)
@@ -89,22 +70,10 @@ export default function SettlementsTab() {
     } catch {} finally { setIsLoadingSettings(false) }
   }, [])
 
-  const fetchSweepLogs = useCallback(async () => {
-    setIsLoadingLogs(true)
-    try {
-      const res = await fetch(`${API_URL}/api/merchant/sweep-logs?limit=20`, { credentials: "include" })
-      if (res.ok) {
-        const data = await res.json()
-        setSweepLogs(data.logs || [])
-      }
-    } catch {} finally { setIsLoadingLogs(false) }
-  }, [])
-
   useEffect(() => {
     fetchWallets()
     fetchSettings()
-    fetchSweepLogs()
-  }, [fetchWallets, fetchSettings, fetchSweepLogs])
+  }, [fetchWallets, fetchSettings])
 
   const handleCopy = (address: string, chain: string) => {
     if (!address) return
@@ -131,7 +100,7 @@ export default function SettlementsTab() {
       if (!res.ok) throw new Error("Failed")
       await fetchWallets()
     } catch {
-      alert("Failed to save vault addresses")
+      alert("Failed to save wallet addresses")
     } finally {
       setIsSavingWallets(false)
     }
@@ -158,20 +127,6 @@ export default function SettlementsTab() {
     }
   }
 
-  const handleAutoSettleToggle = () => {
-    if (!settings) return
-    const next = !settings.autoSettle
-    setSettings({ ...settings, autoSettle: next })
-    saveSettings({ autoSettle: next })
-  }
-
-  const handleSponsorGasToggle = () => {
-    if (!settings) return
-    const next = !settings.sponsorGas
-    setSettings({ ...settings, sponsorGas: next })
-    saveSettings({ sponsorGas: next })
-  }
-
   const handleChainToggle = (chain: string) => {
     if (!settings) return
     const next = settings.enabledChains.includes(chain)
@@ -179,44 +134,6 @@ export default function SettlementsTab() {
       : [...settings.enabledChains, chain]
     setSettings({ ...settings, enabledChains: next })
     saveSettings({ enabledChains: next })
-  }
-
-  const updateThreshold = (dollars: string) => {
-    if (!settings) return
-    const cents = Math.round(parseFloat(dollars || "0") * 100)
-    setSettings({ ...settings, sweepThresholdCents: cents })
-  }
-
-  const commitThreshold = () => {
-    if (!settings) return
-    saveSettings({ sweepThresholdCents: settings.sweepThresholdCents })
-  }
-
-  const updateGasCap = (dollars: string) => {
-    if (!settings) return
-    const cents = Math.round(parseFloat(dollars || "0") * 100)
-    setSettings({ ...settings, gasCapCents: cents })
-  }
-
-  const commitGasCap = () => {
-    if (!settings) return
-    saveSettings({ gasCapCents: settings.gasCapCents })
-  }
-
-  const updateSchedule = (schedule: string) => {
-    if (!settings) return
-    setSettings({ ...settings, sweepSchedule: schedule })
-    saveSettings({ sweepSchedule: schedule as any })
-  }
-
-  const formatTime = (ts: number) => {
-    return new Date(ts).toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" })
-  }
-
-  const truncateAddress = (addr: string) => {
-    if (!addr) return "—"
-    if (addr.length <= 14) return addr
-    return `${addr.slice(0, 6)}…${addr.slice(-4)}`
   }
 
   if (isLoadingSettings || isLoadingWallets) {
@@ -229,25 +146,50 @@ export default function SettlementsTab() {
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-      
+
       <div className="lg:col-span-7 space-y-8">
-        
+
+        {/* Non-custodial info banner */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="glass-card border border-emerald-500/20 rounded-xl p-5 shadow-xl bg-emerald-500/5"
+        >
+          <div className="flex items-start gap-3">
+            <div className="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0">
+              <Zap className="w-4 h-4 text-emerald-400" />
+            </div>
+            <div>
+              <h3 className="text-xs font-bold text-white uppercase tracking-wider font-mono">
+                Non-Custodial Settlement
+              </h3>
+              <p className="text-[10px] text-neutral-400 mt-1.5 leading-relaxed font-semibold">
+                AirPay never holds your funds. When a buyer pays, 98% is sent
+                <strong className="text-emerald-400"> directly to your wallet</strong> on-chain,
+                and 2% goes directly to the platform fee wallet — instantly.
+                There are no sweep schedules, gas sponsorships, or withdrawal delays.
+              </p>
+            </div>
+          </div>
+        </motion.div>
+
+        {/* Wallet addresses */}
         <div className="glass-card border border-neutral-900 rounded-xl p-5 shadow-xl">
           <div className="flex items-center justify-between pb-3 border-b border-neutral-900 mb-6">
             <div className="flex items-center gap-2">
               <Wallet2 className="w-4 h-4 text-indigo-400" />
               <h3 className="text-xs font-bold text-white uppercase tracking-wider font-mono">
-                Treasury Settlement Vaults
+                Receiving Wallets
               </h3>
             </div>
-            <span className="text-[9px] font-mono text-neutral-500">Auto-routed destination wallets</span>
+            <span className="text-[9px] font-mono text-neutral-500">On-chain destination addresses</span>
           </div>
 
           <div className="space-y-4">
             {wallets.map(w => (
               <div key={w.network} className="space-y-1">
                 <div className="flex justify-between items-center text-[10px]">
-                  <span className="font-bold text-neutral-400 font-mono">{w.network} Settlement Vault</span>
+                  <span className="font-bold text-neutral-400 font-mono">{w.network}</span>
                   <span className="text-[8px] text-neutral-500 font-mono">
                     {w.network === "Solana" ? "SPL token receiver" : w.network === "Ethereum" ? "ERC-20 token receiver" : "L2 ERC-20 receiver"}
                   </span>
@@ -287,227 +229,96 @@ export default function SettlementsTab() {
                 ) : (
                   <CheckCircle2 className="w-3.5 h-3.5" />
                 )}
-                <span>Save Vault Addresses</span>
+                <span>Save Wallets</span>
               </button>
             </div>
           </div>
-        </div>
-
-        <div className="glass-card border border-neutral-900 rounded-xl p-5 shadow-xl">
-          <div className="flex items-center justify-between pb-3 border-b border-neutral-900 mb-6">
-            <div className="flex items-center gap-2">
-              <Sliders className="w-4 h-4 text-cyan-400" />
-              <h3 className="text-xs font-bold text-white uppercase tracking-wider font-mono">
-                Auto-Sweep Rules
-              </h3>
-            </div>
-            <span className="text-[9px] font-mono text-neutral-500">
-              {savedAt ? "Saved" : "Withdrawal parameters"}
-            </span>
-          </div>
-
-          {settings && (
-            <div className="space-y-4 text-xs font-medium">
-              <div className="flex items-center justify-between p-3.5 rounded-lg bg-black border border-neutral-900/60 hover:border-neutral-850 transition-all select-none">
-                <div>
-                  <h4 className="text-xs font-bold text-white">Enable Automated Sweeps</h4>
-                  <p className="text-[9px] text-neutral-500 mt-0.5">Funds will be auto-swept to configured vaults when conditions trigger</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleAutoSettleToggle}
-                  disabled={isSavingSettings}
-                  className={`relative w-9 h-5 rounded-full p-0.5 transition-colors ${
-                    settings.autoSettle ? "bg-indigo-600" : "bg-neutral-800"
-                  }`}
-                >
-                  <div 
-                    className={`w-4 h-4 bg-white rounded-full transition-transform ${
-                      settings.autoSettle ? "translate-x-4" : "translate-x-0"
-                    }`} 
-                  />
-                </button>
-              </div>
-
-              {settings.autoSettle && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 bg-neutral-950 p-4 border border-neutral-900 rounded-lg">
-                  <div className="space-y-1.5">
-                    <label className="text-[9px] font-bold text-neutral-450 uppercase tracking-wider font-mono block">
-                      Sweep Trigger Threshold (USD)
-                    </label>
-                    <div className="relative">
-                      <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-500 font-mono text-xs font-bold">$</span>
-                      <input
-                        type="number"
-                        value={(settings.sweepThresholdCents / 100).toString()}
-                        onChange={(e) => updateThreshold(e.target.value)}
-                        onBlur={commitThreshold}
-                        className="w-full pl-7 pr-3 py-1.5 bg-black border border-neutral-900 rounded text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-[9px] font-bold text-neutral-450 uppercase tracking-wider font-mono block">
-                      Sweep Schedule Interval
-                    </label>
-                    <select
-                      value={settings.sweepSchedule}
-                      onChange={(e) => updateSchedule(e.target.value)}
-                      className="w-full bg-black border border-neutral-900 text-xs text-white font-mono rounded px-3 py-1.5 focus:outline-none focus:border-indigo-500 cursor-pointer"
-                    >
-                      <option value="instant">Instant on finality</option>
-                      <option value="daily">Daily sweeps (midnight UTC)</option>
-                      <option value="weekly">Weekly sweeps (Sundays)</option>
-                    </select>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
         </div>
 
       </div>
 
       <div className="lg:col-span-5 space-y-8">
-        
+
+        {/* Enabled Networks */}
         <div className="glass-card border border-neutral-900 rounded-xl p-5 shadow-xl">
           <div className="flex items-center justify-between pb-3 border-b border-neutral-900 mb-5">
             <div className="flex items-center gap-2">
-              <Settings className="w-4 h-4 text-cyan-400" />
+              <Globe className="w-4 h-4 text-cyan-400" />
               <h3 className="text-xs font-bold text-white uppercase tracking-wider font-mono">
-                Gas Sponsorship
+                Enabled Networks
               </h3>
             </div>
-            <span className="text-[9px] font-mono text-neutral-500">Relayer settings</span>
+            <span className="text-[9px] font-mono text-neutral-500">
+              {savedAt ? "Saved" : "Active chains"}
+            </span>
           </div>
 
           {settings && (
             <div className="space-y-4 text-xs font-medium">
-              <div className="flex items-center justify-between p-3 rounded bg-black border border-neutral-900 select-none">
-                <div>
-                  <h4 className="text-[11px] font-bold text-white uppercase tracking-wider font-mono">Sponsor Gas Fees</h4>
-                  <p className="text-[9px] text-neutral-500 mt-0.5">Sponsor wallet fees for buyers to increase sales conversion</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleSponsorGasToggle}
-                  disabled={isSavingSettings}
-                  className={`relative w-8 h-4.5 rounded-full p-0.5 transition-colors shrink-0 ${
-                    settings.sponsorGas ? "bg-cyan-500" : "bg-neutral-800"
-                  }`}
-                >
-                  <div 
-                    className={`w-3.5 h-3.5 bg-white rounded-full transition-transform ${
-                      settings.sponsorGas ? "translate-x-3.5" : "translate-x-0"
-                    }`} 
-                  />
-                </button>
+              <p className="text-[10px] text-neutral-500 leading-relaxed">
+                Toggle which blockchain networks you want to accept payments on.
+                Buyers will only see enabled networks at checkout.
+              </p>
+
+              <div className="grid grid-cols-2 gap-2">
+                {wallets.map(w => {
+                  const active = settings.enabledChains.includes(w.network)
+                  return (
+                    <button
+                      type="button"
+                      key={w.network}
+                      onClick={() => handleChainToggle(w.network)}
+                      className={`py-2 px-3 rounded font-mono text-[10px] font-bold text-left border flex items-center justify-between transition-colors ${
+                        active
+                          ? "bg-cyan-500/10 text-cyan-400 border-cyan-500/20"
+                          : "bg-black text-neutral-500 border-neutral-900 hover:border-neutral-800"
+                      }`}
+                    >
+                      <span>{w.network}</span>
+                      <span>{active ? "ON" : "OFF"}</span>
+                    </button>
+                  )
+                })}
               </div>
-
-              {settings.sponsorGas && (
-                <div className="space-y-4">
-                  <div className="space-y-1.5">
-                    <label className="text-[9px] font-bold text-neutral-450 uppercase tracking-wider font-mono block">
-                      Monthly Sponsorship Cap (USD)
-                    </label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500 font-mono text-xs font-bold">$</span>
-                      <input
-                        type="number"
-                        value={(settings.gasCapCents / 100).toString()}
-                        onChange={(e) => updateGasCap(e.target.value)}
-                        onBlur={commitGasCap}
-                        className="w-full pl-6 pr-3 py-1.5 bg-black border border-neutral-900 rounded text-xs text-white focus:outline-none focus:border-cyan-500 font-mono"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-[9px] font-bold text-neutral-450 uppercase tracking-wider font-mono block">
-                      Sponsored Networks
-                    </label>
-                    <div className="grid grid-cols-2 gap-2">
-                      {wallets.map(w => {
-                        const active = settings.enabledChains.includes(w.network)
-                        return (
-                          <button
-                            type="button"
-                            key={w.network}
-                            onClick={() => handleChainToggle(w.network)}
-                            className={`py-1 px-2.5 rounded font-mono text-[9px] font-bold text-left border flex items-center justify-between transition-colors ${
-                              active 
-                                ? "bg-cyan-500/10 text-cyan-400 border-cyan-500/20" 
-                                : "bg-black text-neutral-500 border-neutral-900 hover:border-neutral-800"
-                            }`}
-                          >
-                            <span>{w.network}</span>
-                            <span>{active ? "ON" : "OFF"}</span>
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
           )}
         </div>
 
-        <div className="glass-card border border-neutral-900 rounded-xl p-5 shadow-xl flex flex-col justify-between min-h-[300px]">
-          <div>
-            <div className="flex items-center justify-between pb-3 border-b border-neutral-900 mb-5">
-              <div className="flex items-center gap-2">
-                <Activity className="w-4 h-4 text-indigo-400" />
-                <h3 className="text-xs font-bold text-white uppercase tracking-wider font-mono">
-                  Settlement History
-                </h3>
-              </div>
-              <button
-                onClick={fetchSweepLogs}
-                type="button"
-                className="text-[9px] font-mono text-neutral-400 hover:text-white flex items-center gap-1"
-              >
-                <RefreshCw className={`w-3 h-3 ${isLoadingLogs ? "animate-spin" : ""}`} />
-                <span>Refresh</span>
-              </button>
-            </div>
+        {/* How it works info card */}
+        <div className="glass-card border border-neutral-900 rounded-xl p-5 shadow-xl">
+          <div className="flex items-center gap-2 pb-3 border-b border-neutral-900 mb-5">
+            <Info className="w-4 h-4 text-neutral-400" />
+            <h3 className="text-xs font-bold text-white uppercase tracking-wider font-mono">
+              How Settlements Work
+            </h3>
+          </div>
 
-            <div className="space-y-2.5 overflow-y-auto max-h-[160px] pr-1">
-              {isLoadingLogs ? (
-                <div className="flex items-center justify-center py-8">
-                  <RefreshCw className="w-4 h-4 text-neutral-500 animate-spin" />
-                </div>
-              ) : sweepLogs.length === 0 ? (
-                <div className="text-center py-8 text-[10px] text-neutral-500 font-mono">
-                  No auto-sweeps executed yet. Configure thresholds above to start.
-                </div>
-              ) : (
-                sweepLogs.map(log => (
-                  <div key={log.id} className="p-3 bg-neutral-950 border border-neutral-900 rounded flex justify-between items-center text-[10px]">
-                    <div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="font-bold text-white">Sweep {log.id.slice(-6)}</span>
-                        <span className="text-[8px] font-mono text-neutral-500 font-bold">{formatTime(log.sweptAt)}</span>
-                      </div>
-                      <span className="text-[8px] font-mono text-neutral-500 block truncate mt-1">
-                        Vault: {truncateAddress(log.destinationAddress)}
-                      </span>
-                    </div>
-                    <div className="text-right">
-                      <span className="font-mono text-emerald-450 font-bold block">
-                        +${(log.amount / 100).toFixed(2)}
-                      </span>
-                      <span className="text-[8px] font-mono text-neutral-600 block mt-1">{log.network} · {log.currency}</span>
-                    </div>
-                  </div>
-                ))
-              )}
+          <div className="space-y-3 text-[10px] text-neutral-400 font-semibold leading-relaxed">
+            <div className="flex gap-2.5">
+              <span className="text-indigo-400 font-mono font-bold shrink-0">01</span>
+              <span>
+                Buyer connects their wallet and confirms the payment amount.
+              </span>
+            </div>
+            <div className="flex gap-2.5">
+              <span className="text-indigo-400 font-mono font-bold shrink-0">02</span>
+              <span>
+                Their wallet signs a transaction that splits the payment:
+                <strong className="text-emerald-400"> 98% to your wallet</strong> and
+                <strong className="text-white"> 2% to AirPay</strong>.
+              </span>
+            </div>
+            <div className="flex gap-2.5">
+              <span className="text-indigo-400 font-mono font-bold shrink-0">03</span>
+              <span>
+                Funds arrive directly on-chain. No holding periods, no sweep rules, no gas sponsorship needed.
+              </span>
             </div>
           </div>
 
           <div className="text-[8px] text-neutral-600 font-semibold leading-relaxed border-t border-neutral-900 pt-3 mt-4">
-            Sweep logs are recorded when funds are auto-routed to merchant treasury vaults.
+            Settlement is instant and final once the blockchain confirms the transaction.
+            AirPay does not have access to your private keys or funds at any point.
           </div>
         </div>
 

@@ -1,0 +1,19 @@
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "object": "checkout.session",
+  "product_name": "Pro Plan — Annual",
+  "amount": 4999,
+  "fee_amount": 100,
+  "merchant_amount": 4899,
+  "currency": "USDC",
+  "network": "Solana",
+  "fee_type": "part_of",
+  "fee_percentage": 200,
+  "merchant_wallet_address": "7xKXtg2CW87d97TXJSDpbD5jBkheTqA3g4o2x9tQ2pNv",
+  "company_wallet_address": "9xKXtg2CW87d97TXJSDpbD5jBkheTqA3g4o2x9tQ2pNx",
+  "collect_email": true,
+  "status": "pending",
+  "expires_at": 1719333000000,
+  "created_at": 1719331200000,
+  "metadata": null
+}

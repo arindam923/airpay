@@ -115,7 +115,6 @@ export default function ApiKeysTab({ isLiveMode }: ApiKeysTabProps) {
   const [businessName, setBusinessName] = useState("")
   const [feeType, setFeeType] = useState<"part_of" | "on_top">("part_of")
   const [webhookUrl, setWebhookUrl] = useState("")
-  const [webhookSecret, setWebhookSecret] = useState("")
   const [wallets, setWallets] = useState([
     { network: "Solana", walletAddress: "" },
     { network: "Arbitrum", walletAddress: "" },
@@ -230,7 +229,6 @@ export default function ApiKeysTab({ isLiveMode }: ApiKeysTabProps) {
           businessName,
           feeType,
           webhookUrl: webhookUrl || undefined,
-          webhookSecret: webhookSecret || undefined,
           wallets: wallets.filter(w => w.walletAddress),
         }),
       })
@@ -452,17 +450,6 @@ export default function CheckoutPage() {
                   value={webhookUrl}
                   onChange={(e) => setWebhookUrl(e.target.value)}
                   placeholder="https://api.yourdomain.com/webhooks"
-                  className="w-full px-3 py-2 bg-black border border-neutral-900 rounded text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider font-mono block">Webhook Secret</label>
-                <input
-                  type="text"
-                  value={webhookSecret}
-                  onChange={(e) => setWebhookSecret(e.target.value)}
-                  placeholder="whsec_..."
                   className="w-full px-3 py-2 bg-black border border-neutral-900 rounded text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"
                 />
               </div>

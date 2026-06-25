@@ -1,0 +1,17 @@
+{
+  "id": "evt_550e8400-e29b-41d4-a716-446655440003",
+  "object": "event",
+  "event": "payment.failed",
+  "payment_id": "660e8400-e29b-41d4-a716-446655440009",
+  "checkout_session_id": "550e8400-e29b-41d4-a716-446655440000",
+  "amount": 4999,
+  "fee_amount": 100,
+  "merchant_amount": 4899,
+  "currency": "USDC",
+  "network": "Solana",
+  "tx_hash": "5as...failed_hash...xyz",
+  "status": "failed",
+  "blockchain_status": "failed",
+  "confirmations": 0,
+  "created": 1719331260000
+}

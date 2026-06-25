@@ -1,0 +1,26 @@
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "660e8400-e29b-41d4-a716-446655440001",
+      "object": "payment",
+      "checkout_session_id": "550e8400-e29b-41d4-a716-446655440000",
+      "tx_hash": "5as...long_hash...abc",
+      "buyer_address": "9xKXtg2CW87d97TXJSDpbD5jBkheTqA3g4o2x9tQ2pNv",
+      "amount": 4999,
+      "fee_amount": 100,
+      "merchant_amount": 4899,
+      "status": "completed",
+      "blockchain_status": "finalized",
+      "confirmations": 12,
+      "product_name": "Pro Plan — Annual",
+      "currency": "USDC",
+      "network": "Solana",
+      "settled_at": 1719331260000,
+      "created_at": 1719331200000
+    }
+  ],
+  "limit": 20,
+  "offset": 0,
+  "has_more": false
+}

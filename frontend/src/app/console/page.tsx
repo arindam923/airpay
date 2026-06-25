@@ -394,7 +394,7 @@ export default function ConsolePage() {
               {activeTab === "payments" && "Detailed transaction record database and real-time event broadcaster."}
               {activeTab === "keys" && "Configure client secret credentials, webhooks events, and code playgrounds."}
               {activeTab === "checkout" && "Generate Hosted Checkout Links and review recent payment sessions."}
-              {activeTab === "settlements" && "Manage multi-chain wallet vault receivers and gas relayer properties."}
+              {activeTab === "settlements" && "Configure receiving wallets and active blockchain networks. Non-custodial instant settlements."}
             </p>
           </div>
 
