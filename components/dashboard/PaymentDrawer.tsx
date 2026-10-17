@@ -4,6 +4,9 @@ import { useEffect, useState } from "react";
 import { useDashboard } from "./DashboardContext";
 import { coinColors } from "./data";
 import { copyText, fakeTxHash } from "./utils";
+import StatusChip from "./ui/StatusChip";
+import KvList from "./ui/KvList";
+import CopyButton from "./ui/CopyButton";
 
 export default function PaymentDrawer() {
   const { payment, closePayment } = useDashboard();
@@ -42,23 +45,14 @@ export default function PaymentDrawer() {
     },
   ];
 
-  const statusChip =
-    payment.status === "Confirmed"
-      ? "bg-d-success/10 text-d-success"
-      : payment.status === "Pending"
-        ? "bg-d-pending/10 text-d-pending"
-        : "bg-d-failed/10 text-d-failed";
-
   return (
     <div className="fixed inset-0 z-[60]" role="dialog" aria-label="Payment details">
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={closePayment} />
-      <div className="absolute inset-y-0 right-0 flex w-full max-w-[430px] flex-col border-l border-d-edge bg-d-panel shadow-2xl shadow-black/60">
-        <div className="flex items-center justify-between border-b border-d-edge-soft px-5 py-4">
+      <div className="absolute inset-y-0 right-0 flex w-full max-w-[430px] flex-col rounded-l-2xl border-l border-d-edge bg-d-panel shadow-d-drawer">
+        <div className="flex items-center justify-between rounded-tl-2xl border-b border-d-edge-soft px-5 py-4">
           <div className="flex items-center gap-3">
             <p className="font-mono text-[14px] font-medium text-d-ink">{payment.id}</p>
-            <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${statusChip}`}>
-              {payment.status}
-            </span>
+            <StatusChip status={payment.status} />
           </div>
           <button
             onClick={closePayment}
@@ -108,23 +102,28 @@ export default function PaymentDrawer() {
             <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-d-muted/70">
               Amount breakdown
             </p>
-            <div className="rounded-lg border border-d-edge bg-d-raised">
-              {[
-                ["Gross", `$${gross.toLocaleString("en-US")}`],
-                ["AirPay fee (0.9%)", `-$${fee.toLocaleString("en-US")}`],
-              ].map(([k, v]) => (
-                <div key={k} className="flex items-center justify-between border-b border-d-edge-soft px-4 py-2.5 text-[13px]">
-                  <span className="text-d-muted">{k}</span>
-                  <span className="font-mono text-d-ink">{v}</span>
-                </div>
-              ))}
-              <div className="flex items-center justify-between px-4 py-3 text-[13px]">
-                <span className="font-medium text-d-ink">Net payout</span>
-                <span className="font-mono font-semibold text-d-success">
-                  ${net.toLocaleString("en-US")}
-                </span>
-              </div>
-            </div>
+            <KvList
+              items={[
+                [
+                  "Gross",
+                  <span key="gross" className="font-mono">
+                    {`$${gross.toLocaleString("en-US")}`}
+                  </span>,
+                ],
+                [
+                  "AirPay fee (0.9%)",
+                  <span key="fee" className="font-mono">
+                    {`-$${fee.toLocaleString("en-US")}`}
+                  </span>,
+                ],
+                [
+                  "Net payout",
+                  <span key="net" className="font-mono font-semibold text-d-success">
+                    ${net.toLocaleString("en-US")}
+                  </span>,
+                ],
+              ]}
+            />
           </div>
 
           <div className="mt-6">
@@ -133,27 +132,22 @@ export default function PaymentDrawer() {
             </p>
             <div className="flex items-center gap-2 rounded-lg border border-d-edge bg-d-raised px-4 py-3">
               <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-d-ink">{tx}</span>
-              <button
-                onClick={() => doCopy("tx", tx)}
-                className={`shrink-0 rounded-md px-2.5 py-1 text-[11.5px] font-medium transition-colors ${
-                  copied === "tx" ? "bg-d-success text-d-bg" : "bg-d-accent text-white hover:bg-d-accent-deep"
-                }`}
-              >
-                {copied === "tx" ? "Copied" : "Copy"}
-              </button>
+              <CopyButton text={tx} compact ariaLabel="Copy transaction hash">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                  <rect x="3.5" y="3.5" width="7" height="7" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
+                  <path d="M8.5 3.5V2.5a1 1 0 0 0-1-1H2.5a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1h1" stroke="currentColor" strokeWidth="1.2" />
+                </svg>
+              </CopyButton>
             </div>
-            <div className="mt-3 rounded-lg border border-d-edge bg-d-raised">
-              {[
-                ["Network", payment.chain],
-                ["Confirmations", payment.status === "Confirmed" ? "12" : "—"],
-                ["Received", payment.time],
-                ["Fee paid", "$0.00 (gas sponsored)"],
-              ].map(([k, v]) => (
-                <div key={k} className="flex items-center justify-between border-b border-d-edge-soft px-4 py-2.5 text-[13px] last:border-0">
-                  <span className="text-d-muted">{k}</span>
-                  <span className="text-d-ink">{v}</span>
-                </div>
-              ))}
+            <div className="mt-3">
+              <KvList
+                items={[
+                  ["Network", payment.chain],
+                  ["Confirmations", payment.status === "Confirmed" ? "12" : "—"],
+                  ["Received", payment.time],
+                  ["Fee paid", "$0.00 (gas sponsored)"],
+                ]}
+              />
             </div>
           </div>
 

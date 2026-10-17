@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { useDashboard } from "./DashboardContext";
-import { copyText } from "./utils";
 import {
   CHAINS,
   buildCheckoutUrl,
@@ -10,6 +9,7 @@ import {
   formatUsd,
   type AmountMode,
 } from "@/components/pay/config";
+import CopyButton from "./ui/CopyButton";
 
 export default function NewLinkModal() {
   const { newLinkOpen } = useDashboard();
@@ -31,7 +31,6 @@ function LinkModalBody() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [link, setLink] = useState<string | null>(null);
   const [summary, setSummary] = useState("");
-  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && closeNewLink();
@@ -108,15 +107,6 @@ function LinkModalBody() {
     setErrors({});
     setLink(null);
     setSummary("");
-    setCopied(false);
-  };
-
-  const doCopy = async () => {
-    if (!link) return;
-    if (await copyText(link)) {
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1600);
-    }
   };
 
   const field =
@@ -130,7 +120,7 @@ function LinkModalBody() {
       onClick={closeNewLink}
     >
       <div
-        className="w-full max-w-[460px] overflow-hidden rounded-xl border border-d-edge bg-d-panel shadow-2xl shadow-black/60"
+        className="w-full max-w-[460px] overflow-hidden rounded-2xl border border-d-edge bg-d-panel shadow-d-pop"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-d-edge-soft px-5 py-4">
@@ -150,7 +140,7 @@ function LinkModalBody() {
 
         {link ? (
           <div className="p-5">
-            <div className="flex items-center gap-3 rounded-lg border border-d-success/40 bg-d-success/10 px-4 py-3">
+            <div className="flex items-center gap-3 rounded-2xl border border-d-success/40 bg-d-success/10 px-4 py-3">
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-d-success">
                 <svg width="14" height="14" viewBox="0 0 12 12" fill="none">
                   <path d="M2 6.5l2.5 2.5L10 3.5" stroke="#0a0a0c" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
@@ -164,20 +154,15 @@ function LinkModalBody() {
 
             <div className="mt-4 flex items-center gap-2 rounded-lg border border-d-edge bg-d-raised px-3 py-2.5">
               <span className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-d-ink">{link}</span>
-              <button
-                onClick={doCopy}
-                className={`shrink-0 rounded-md px-3 py-1.5 text-[12px] font-medium transition-colors ${
-                  copied ? "bg-d-success text-d-bg" : "border border-d-edge text-d-muted hover:text-d-ink"
-                }`}
-              >
-                {copied ? "Copied!" : "Copy"}
-              </button>
+              <CopyButton text={link} ariaLabel="Copy checkout link" copiedChildren="Copied!">
+                Copy link
+              </CopyButton>
             </div>
 
             <div className="mt-4 flex gap-2">
               <button
                 onClick={() => window.open(link, "_blank", "noopener")}
-                className="h-10 flex-1 rounded-lg bg-d-accent text-[13px] font-medium text-white transition-colors hover:bg-d-accent-deep"
+                className="d-glow h-10 flex-1 rounded-lg bg-d-accent text-[13px] font-medium text-cream transition-colors hover:bg-d-accent-deep"
               >
                 Open checkout
               </button>
@@ -370,7 +355,7 @@ function LinkModalBody() {
               </button>
               <button
                 type="submit"
-                className="rounded-lg bg-d-accent px-4 py-2 text-[13px] font-medium text-white transition-colors hover:bg-d-accent-deep"
+                className="d-glow rounded-lg bg-d-accent px-4 py-2 text-[13px] font-medium text-cream transition-colors hover:bg-d-accent-deep"
               >
                 Create link
               </button>
