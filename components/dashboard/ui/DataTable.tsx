@@ -68,8 +68,8 @@ export default function DataTable<T extends { id: string }>({
                   : ""
               }`}
             >
-              {columns.map((c) => (
-                <td key={c.header} className={`px-5 py-3.5 ${c.align === "right" ? "text-right" : ""}`}>
+              {columns.map((c, ci) => (
+                <td key={ci} className={`px-5 py-3.5 ${c.align === "right" ? "text-right" : ""}`}>
                   {c.cell(row, i)}
                 </td>
               ))}

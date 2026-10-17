@@ -13,6 +13,7 @@ export default function ExportButton({
 }) {
   return (
     <button
+      type="button"
       onClick={() => downloadCsv(filename, rows)}
       className="flex h-9 items-center gap-2 rounded-lg border border-d-edge bg-d-panel px-3.5 text-[12.5px] font-medium text-d-ink transition-colors hover:bg-d-raised"
     >

@@ -160,7 +160,7 @@ export default function Topbar({ onMenu }: { onMenu: () => void }) {
 
         <button
           onClick={openNewLink}
-          className="hidden h-9 items-center gap-1.5 rounded-lg bg-d-accent px-4 text-[13px] font-medium text-white transition-colors hover:bg-d-accent-deep sm:flex"
+          className="hidden h-9 items-center gap-1.5 rounded-lg bg-d-accent px-4 text-[13px] font-medium text-cream transition-colors hover:bg-d-accent-deep sm:flex"
         >
           New payment link
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none">

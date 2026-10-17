@@ -138,7 +138,6 @@ export default function ApiKeysPage() {
       {creating && (
         <Card className="mb-4">
           <form onSubmit={createKey} className="flex flex-wrap items-end gap-3 p-5">
-          <div className="flex flex-wrap items-end gap-3">
             <label className="block flex-1">
               <span className="mb-1.5 block text-[12px] font-medium text-d-muted">Label</span>
               <input
@@ -160,10 +159,9 @@ export default function ApiKeysPage() {
                 <option>Read only</option>
               </select>
             </label>
-              <button type="submit" className="d-glow h-10 rounded-lg bg-d-accent px-4 text-[13px] font-medium text-cream transition-colors hover:bg-d-accent-deep">
-                Create key
-              </button>
-            </div>
+            <button type="submit" className="d-glow h-10 rounded-lg bg-d-accent px-4 text-[13px] font-medium text-cream transition-colors hover:bg-d-accent-deep">
+              Create key
+            </button>
           </form>
         </Card>
       )}

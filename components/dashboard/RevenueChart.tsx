@@ -88,7 +88,7 @@ export default function RevenueChart({
               onClick={() => selectRange(r)}
               className={`rounded-md px-3 py-1.5 text-[12px] font-medium transition-colors ${
                 range === r
-                  ? "bg-d-accent text-white"
+                  ? "bg-d-accent text-cream"
                   : "text-d-muted hover:text-d-ink"
               }`}
             >

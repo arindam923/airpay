@@ -191,7 +191,7 @@ export default function PaymentDrawer() {
           </button>
           <button
             onClick={closePayment}
-            className="flex-1 rounded-lg bg-d-accent px-4 py-2.5 text-[13px] font-medium text-white transition-colors hover:bg-d-accent-deep"
+            className="flex-1 rounded-lg bg-d-accent px-4 py-2.5 text-[13px] font-medium text-cream transition-colors hover:bg-d-accent-deep"
           >
             Close
           </button>
