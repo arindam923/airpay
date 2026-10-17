@@ -5,22 +5,12 @@ import { useRouter, usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useDashboard } from "./DashboardContext";
 import { initialNotifications, payments } from "./data";
-
-const titles: Record<string, string> = {
-  "/dashboard": "Overview",
-  "/dashboard/payments": "Payments",
-  "/dashboard/payouts": "Payouts",
-  "/dashboard/customers": "Customers",
-  "/dashboard/webhooks": "Webhooks",
-  "/dashboard/api-keys": "API keys",
-  "/dashboard/settings": "Settings",
-  "/dashboard/audit-log": "Audit log",
-};
+import { pageTitleForPath } from "./nav";
 
 export default function Topbar({ onMenu }: { onMenu: () => void }) {
   const pathname = usePathname();
   const { setPaletteOpen, openNewLink, openPayment } = useDashboard();
-  const title = titles[pathname] ?? "Overview";
+  const title = pageTitleForPath(pathname);
 
   const [notifs, setNotifs] = useState(initialNotifications);
   const [bellOpen, setBellOpen] = useState(false);

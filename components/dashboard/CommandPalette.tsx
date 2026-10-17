@@ -1,9 +1,10 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useDashboard } from "./DashboardContext";
 import { deriveCustomers, payments } from "./data";
+import { NAV_GROUPS } from "./nav";
 
 interface PageItem {
   type: "page";
@@ -26,16 +27,27 @@ interface CustomerItem {
 type Item = PageItem | PaymentItem | CustomerItem;
 
 const pages: PageItem[] = [
-  { type: "page", label: "Overview", href: "/dashboard", group: "Pages" },
-  { type: "page", label: "Payments", href: "/dashboard/payments", group: "Pages" },
-  { type: "page", label: "Payouts", href: "/dashboard/payouts", group: "Pages" },
-  { type: "page", label: "Customers", href: "/dashboard/customers", group: "Pages" },
-  { type: "page", label: "Webhooks", href: "/dashboard/webhooks", group: "Pages" },
-  { type: "page", label: "API keys", href: "/dashboard/api-keys", group: "Pages" },
-  { type: "page", label: "Settings", href: "/dashboard/settings", group: "Pages" },
-  { type: "page", label: "Audit log", href: "/dashboard/audit-log", group: "Pages" },
+  ...NAV_GROUPS.flatMap((group) =>
+    group.items.map((item) => ({ type: "page" as const, label: item.label, href: item.href, group: group.title }))
+  ),
   { type: "page", label: "Docs", href: "/docs", group: "Pages" },
 ];
+
+function Glyph({ d, vb = "0 0 14 14", sw = 1.5 }: { d: string; vb?: string; sw?: number }) {
+  return (
+    <svg width="14" height="14" viewBox={vb} fill="none" className="shrink-0 text-d-muted">
+      <path d={d} stroke="currentColor" strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+const pageIcons: Record<string, ReactNode> = {};
+for (const group of NAV_GROUPS) {
+  for (const item of group.items) {
+    pageIcons[item.href] = <Glyph d={item.icon} vb="0 0 20 20" sw={1.6} />;
+  }
+}
+pageIcons["/docs"] = <Glyph d="M4 1.5h4l3 3v8h-7zM8 1.5v3h3" />;
 
 export default function CommandPalette() {
   const { paletteOpen } = useDashboard();
@@ -175,7 +187,13 @@ function PaletteBody() {
                           : "bg-violet/20 text-violet"
                     }`}
                   >
-                    {item.type === "page" ? "↗" : item.type === "payment" ? "¢" : "◉"}
+                    {item.type === "page" ? (
+                      pageIcons[item.href] ?? <Glyph d="M4 1.5h4l3 3v8h-7zM8 1.5v3h3" />
+                    ) : item.type === "payment" ? (
+                      <Glyph d="M8.2 1.5L3.8 8h2.9l-.8 4.5L10.2 6H7.3l.9-4.5z" />
+                    ) : (
+                      <Glyph d="M7 7a2.5 2.5 0 100-5 2.5 2.5 0 000 5zM2.5 12.5c.6-2.4 2.4-3.8 4.5-3.8s3.9 1.4 4.5 3.8" />
+                    )}
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[13.5px] font-medium text-d-ink">
