@@ -166,7 +166,7 @@ export default function RevenueChart({
           </g>
 
           <path
-            key={range}
+            key={`${range}-area`}
             d={area}
             fill={`url(#${gid}-fill)`}
             className="animate-rise"
