@@ -33,22 +33,25 @@
   --shadow-d-drawer: 0 0 0 1px rgba(255, 255, 255, 0.07), -16px 0 60px -20px rgba(0, 0, 0, 0.8);
 }
 
-/* Elevated surface: subtle top-light gradient + hairline inner highlight */
-.d-card {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0) 90px), var(--color-d-panel);
-  box-shadow: var(--shadow-d-card);
-}
+@layer components {
+  /* Elevated surface: subtle top-light gradient + hairline inner highlight */
+  .d-card {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0) 90px), var(--color-d-panel);
+    box-shadow: var(--shadow-d-card);
+  }
 
-/* Accent ambient glow for primary buttons / chart emphasis */
-.d-glow {
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08) inset, 0 4px 20px -6px var(--color-d-accent-glow);
-}
+  /* Accent ambient glow for primary buttons / chart emphasis */
+  .d-glow {
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08) inset, 0 4px 20px -6px var(--color-d-accent-glow);
+  }
 
-/* Glassy popover/tooltip surface */
-.d-glass {
-  background: color-mix(in srgb, var(--color-d-raised) 80%, transparent);
-  backdrop-filter: blur(12px);
-  box-shadow: var(--shadow-d-pop);
+  /* Glassy popover/tooltip surface */
+  .d-glass {
+    background: color-mix(in srgb, var(--color-d-raised) 80%, transparent);
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+    box-shadow: var(--shadow-d-pop);
+  }
 }
 
 @keyframes draw {
@@ -185,5 +188,9 @@ body {
   .animate-pulse-dot,
   .animate-draw {
     animation: none;
+  }
+
+  .animate-draw {
+    stroke-dashoffset: 0;
   }
 }
