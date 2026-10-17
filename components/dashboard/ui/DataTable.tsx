@@ -49,9 +49,15 @@ export default function DataTable<T extends { id: string }>({
               onClick={onRowClick ? () => onRowClick(row) : undefined}
               onKeyDown={
                 onRowClick
-                  ? (e) => e.key === "Enter" && onRowClick(row)
+                  ? (e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        onRowClick(row);
+                      }
+                    }
                   : undefined
               }
+              aria-current={isSelected?.(row) ? "true" : undefined}
               tabIndex={interactive ? 0 : undefined}
               role={interactive ? "button" : undefined}
               className={`group border-b border-d-edge-soft/60 transition-colors last:border-0 hover:bg-d-raised/60 ${
