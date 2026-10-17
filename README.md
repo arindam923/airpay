@@ -34,3 +34,62 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+---
+
+## AirPay — testnet payments (EVM)
+
+Real wallet connect + on-chain verification, **testnet only** (no real funds move).
+
+### 1. Configure
+
+```bash
+cp .env.example .env.local
+```
+
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `RECEIVER_ADDRESS` | yes | Testnet EVM address (`0x…`) that receives merchant funds |
+| `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | optional | [Reown/ WalletConnect Cloud](https://cloud.reown.com) ID — without it only browser wallets (MetaMask etc.) are offered |
+| `ETHERSCAN_API_KEY` | optional | [Etherscan v2](https://etherscan.io/apis) key — enables QR auto-detection of incoming transfers (QR payers can always paste the tx hash manually) |
+| `RPC_*` | optional | Per-chain RPC overrides; public RPCs are the default |
+
+Supported testnets: **Base Sepolia, Ethereum Sepolia, Arbitrum Sepolia, Optimism Sepolia, Polygon Amoy** (Circle-issued testnet USDC + native ETH).
+
+### 2. Fund a wallet
+
+1. Gas: any testnet faucet — e.g. [Alchemy Sepolia faucets](https://faucets.chain.link/), or your wallet's built-in faucet.
+2. USDC: [Circle faucet](https://faucet.circle.com) (20 testnet USDC per address / network / 2h).
+
+### 3. Run
+
+```bash
+npm install
+npm run dev:all     # next dev + verification worker
+```
+
+Or in two terminals:
+
+```bash
+npm run dev         # app on http://localhost:3000
+npm run worker      # transaction verification worker (polls every 5s)
+```
+
+### 4. Pay
+
+Open a checkout link (from the dashboard **New payment link**, or a demo: `http://localhost:3000/pay/demo`), then:
+
+- **Wallet**: connect → the app switches you to the selected testnet if needed → Pay → confirm in the wallet.
+- **QR**: send the exact amount, then paste the transaction hash (or leave the tab open — with `ETHERSCAN_API_KEY` the worker auto-detects it).
+
+The worker independently re-verifies every transaction on-chain (sender, recipient, exact amount, token contract, receipt status) and needs **2 confirmations** before the checkout shows *Payment confirmed*.
+
+Intents are stored in SQLite at `DATABASE_PATH` (`./data/airpay.db` by default) and expire after 15 minutes.
+
+### Useful commands
+
+```bash
+npm run lint        # eslint
+npm run typecheck   # tsc --noEmit
+npm run build       # production build
+```
