@@ -21,7 +21,14 @@ export async function copyText(text: string): Promise<boolean> {
 
 export function downloadCsv(filename: string, rows: (string | number)[][]) {
   const csv = rows
-    .map((r) => r.map((c) => `"${String(c).replaceAll('"', '""')}"`).join(","))
+    .map((r) =>
+      r
+        .map((c) => {
+          const s = typeof c === "string" && /^[=+-@]/.test(c) ? `'${c}` : `${c}`;
+          return `"${s.replaceAll('"', '""')}"`;
+        })
+        .join(",")
+    )
     .join("\n");
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
   const url = URL.createObjectURL(blob);
