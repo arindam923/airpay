@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import PageHeader from "../PageHeader";
-import { copyText } from "../utils";
+import Card, { CardHeader } from "../ui/Card";
+import CopyButton from "../ui/CopyButton";
 
 interface ApiKey {
   id: string;
@@ -60,7 +61,6 @@ function genSecret(prefix: string) {
 export default function ApiKeysPage() {
   const [keys, setKeys] = useState(initialKeys);
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
-  const [copiedId, setCopiedId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [label, setLabel] = useState("");
   const [scope, setScope] = useState<"Full access" | "Read only">("Full access");
@@ -101,7 +101,7 @@ export default function ApiKeysPage() {
         actions={
           <button
             onClick={() => setCreating((v) => !v)}
-            className="flex h-9 items-center gap-1.5 rounded-lg bg-d-accent px-4 text-[13px] font-medium text-white transition-colors hover:bg-d-accent-deep"
+            className="d-glow flex h-9 items-center gap-1.5 rounded-lg bg-d-accent px-4 text-[13px] font-medium text-cream transition-colors hover:bg-d-accent-deep"
           >
             {creating ? "Cancel" : "Create API key"}
             {!creating && (
@@ -114,7 +114,7 @@ export default function ApiKeysPage() {
       />
 
       {freshSecret && (
-        <div className="mb-4 rounded-xl border border-d-success/40 bg-d-success/10 p-4">
+        <div className="mb-4 rounded-2xl border border-d-success/40 bg-d-success/10 p-4">
           <p className="text-[13px] font-medium text-d-ink">
             Copy your new secret key now — it won&apos;t be shown again.
           </p>
@@ -122,16 +122,9 @@ export default function ApiKeysPage() {
             <code className="min-w-0 flex-1 break-all rounded-lg border border-d-edge bg-d-raised px-3 py-2 font-mono text-[12.5px] text-d-ink">
               {freshSecret}
             </code>
-            <button
-              onClick={async () => {
-                if (await copyText(freshSecret)) setCopiedId("fresh");
-              }}
-              className={`shrink-0 rounded-lg px-3.5 py-2 text-[12.5px] font-medium transition-colors ${
-                copiedId === "fresh" ? "bg-d-success text-d-bg" : "bg-d-accent text-white hover:bg-d-accent-deep"
-              }`}
-            >
-              {copiedId === "fresh" ? "Copied" : "Copy"}
-            </button>
+            <CopyButton text={freshSecret} ariaLabel="Copy new API secret key" copiedChildren="Copied">
+              Copy
+            </CopyButton>
             <button
               onClick={() => setFreshSecret(null)}
               className="shrink-0 rounded-lg border border-d-edge px-3.5 py-2 text-[12.5px] font-medium text-d-ink transition-colors hover:bg-d-raised"
@@ -143,7 +136,8 @@ export default function ApiKeysPage() {
       )}
 
       {creating && (
-        <form onSubmit={createKey} className="mb-4 rounded-xl border border-d-edge bg-d-panel p-5">
+        <Card className="mb-4">
+          <form onSubmit={createKey} className="flex flex-wrap items-end gap-3 p-5">
           <div className="flex flex-wrap items-end gap-3">
             <label className="block flex-1">
               <span className="mb-1.5 block text-[12px] font-medium text-d-muted">Label</span>
@@ -166,20 +160,19 @@ export default function ApiKeysPage() {
                 <option>Read only</option>
               </select>
             </label>
-            <button type="submit" className="h-10 rounded-lg bg-d-accent px-4 text-[13px] font-medium text-white transition-colors hover:bg-d-accent-deep">
-              Create key
-            </button>
-          </div>
-        </form>
+              <button type="submit" className="d-glow h-10 rounded-lg bg-d-accent px-4 text-[13px] font-medium text-cream transition-colors hover:bg-d-accent-deep">
+                Create key
+              </button>
+            </div>
+          </form>
+        </Card>
       )}
 
-      <section className="rounded-xl border border-d-edge bg-d-panel">
-        <div className="border-b border-d-edge-soft px-5 py-4">
-          <h2 className="text-[14px] font-medium text-d-ink">Your keys</h2>
-          <p className="mt-0.5 text-[12px] text-d-muted">
-            {active.length} active · {keys.length - active.length} revoked
-          </p>
-        </div>
+      <Card>
+        <CardHeader
+          title="Your keys"
+          description={`${active.length} active · ${keys.length - active.length} revoked`}
+        />
         <div className="flex flex-col">
           {keys.map((k) => (
             <div key={k.id} className="border-b border-d-edge-soft/60 px-5 py-4 last:border-0">
@@ -220,19 +213,9 @@ export default function ApiKeysPage() {
                 <div className="flex shrink-0 items-center gap-2">
                   {!k.revoked && (
                     <>
-                      <button
-                        onClick={async () => {
-                          if (await copyText(k.secret)) {
-                            setCopiedId(k.id);
-                            setTimeout(() => setCopiedId(null), 1500);
-                          }
-                        }}
-                        className={`rounded-md border border-d-edge px-3 py-1.5 text-[12px] font-medium transition-colors ${
-                          copiedId === k.id ? "border-d-success text-d-success" : "text-d-ink hover:bg-d-raised"
-                        }`}
-                      >
-                        {copiedId === k.id ? "Copied" : "Copy"}
-                      </button>
+                      <CopyButton text={k.secret} ariaLabel={`Copy secret for key ${k.label}`} copiedChildren="Copied">
+                        Copy
+                      </CopyButton>
                       <button
                         onClick={() => revoke(k.id)}
                         className="rounded-md border border-d-failed/40 px-3 py-1.5 text-[12px] font-medium text-d-failed transition-colors hover:bg-d-failed/10"
@@ -251,7 +234,7 @@ export default function ApiKeysPage() {
             </div>
           ))}
         </div>
-      </section>
+      </Card>
 
       <p className="mt-4 text-[12px] leading-[1.5] text-d-muted">
         Keep secret keys on your server only. Never expose them in client-side code or
