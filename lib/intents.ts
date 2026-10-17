@@ -1,13 +1,17 @@
 import { randomUUID } from "node:crypto";
+import { and, asc, eq, inArray, notInArray } from "drizzle-orm";
 import { usdToUnits } from "./amounts";
 import type { IntentStatus, PublicIntent } from "./api-types";
-import { testnetByName, testnetByKey } from "./chains";
+import { testnetByKey, testnetByName } from "./chains";
 import { getDb, type PaymentIntent } from "./db";
+import { paymentIntents } from "./schema";
 
 export type { IntentStatus, PublicIntent };
 
 export const INTENT_TTL_MS = 15 * 60 * 1000;
 export const REQUIRED_CONFIRMATIONS = 2;
+
+export const TERMINAL_STATUSES: IntentStatus[] = ["confirmed", "failed", "expired"];
 
 export interface CreateIntentInput {
   slug: string;
@@ -38,7 +42,7 @@ export function receiverAddress(): string {
   return addr;
 }
 
-export function createIntent(input: CreateIntentInput): PaymentIntent {
+export async function createIntent(input: CreateIntentInput): Promise<PaymentIntent> {
   const info = testnetByName(input.chain);
   if (!info) {
     throw new IntentError(`Unsupported network: ${input.chain}. Only EVM testnets are live.`);
@@ -79,35 +83,29 @@ export function createIntent(input: CreateIntentInput): PaymentIntent {
     expires_at: now + INTENT_TTL_MS,
     updated_at: now,
     confirmed_at: null,
+    next_verify_at: null,
+    next_detect_at: null,
   };
 
-  getDb()
-    .prepare(
-      `INSERT INTO payment_intents
-       (id, slug, title, merchant, mode, amount_usd, chain_key, token, expected_units, receiver,
-        payer, tx_hash, status, confirmations, block_number, error, created_at, expires_at, updated_at, confirmed_at)
-       VALUES
-       (@id, @slug, @title, @merchant, @mode, @amount_usd, @chain_key, @token, @expected_units, @receiver,
-        @payer, @tx_hash, @status, @confirmations, @block_number, @error, @created_at, @expires_at, @updated_at, @confirmed_at)`
-    )
-    .run(intent);
-
+  const db = await getDb();
+  await db.insert(paymentIntents).values(intent);
   return intent;
 }
 
-export function getIntent(id: string): PaymentIntent | null {
-  return (
-    (getDb().prepare("SELECT * FROM payment_intents WHERE id = ?").get(id) as
-      | PaymentIntent
-      | undefined) ?? null
-  );
+export async function getIntent(id: string): Promise<PaymentIntent | null> {
+  const db = await getDb();
+  const rows = await db.select().from(paymentIntents).where(eq(paymentIntents.id, id)).limit(1);
+  return rows[0] ?? null;
 }
 
-export function listIntentsByStatus(statuses: IntentStatus[]): PaymentIntent[] {
-  const placeholders = statuses.map(() => "?").join(",");
-  return getDb()
-    .prepare(`SELECT * FROM payment_intents WHERE status IN (${placeholders}) ORDER BY created_at ASC`)
-    .all(...statuses) as PaymentIntent[];
+export async function listIntentsByStatus(statuses: IntentStatus[]): Promise<PaymentIntent[]> {
+  if (statuses.length === 0) return [];
+  const db = await getDb();
+  return db
+    .select()
+    .from(paymentIntents)
+    .where(inArray(paymentIntents.status, statuses))
+    .orderBy(asc(paymentIntents.created_at));
 }
 
 export interface SubmitInput {
@@ -116,10 +114,10 @@ export interface SubmitInput {
   payer?: string | null;
 }
 
-export function attachTx({ intentId, txHash, payer }: SubmitInput): PaymentIntent {
-  const intent = getIntent(intentId);
+export async function attachTx({ intentId, txHash, payer }: SubmitInput): Promise<PaymentIntent> {
+  const intent = await getIntent(intentId);
   if (!intent) throw new IntentError("Payment intent not found.", 404);
-  if (intent.status === "confirmed" || intent.status === "failed" || intent.status === "expired") {
+  if (TERMINAL_STATUSES.includes(intent.status)) {
     throw new IntentError(`This payment is already ${intent.status}.`, 409);
   }
   if (!/^0x[0-9a-fA-F]{64}$/.test(txHash)) {
@@ -130,51 +128,80 @@ export function attachTx({ intentId, txHash, payer }: SubmitInput): PaymentInten
   }
 
   const now = Date.now();
-  getDb()
-    .prepare(
-      `UPDATE payment_intents
-       SET status = 'submitted', tx_hash = ?, payer = COALESCE(?, payer), updated_at = ?
-       WHERE id = ?`
-    )
-    .run(txHash.toLowerCase(), payer?.toLowerCase() ?? null, now, intentId);
+  const db = await getDb();
+  // Conditional update keeps concurrent writers (worker / self-heal / cron)
+  // from resurrecting a terminal intent.
+  const res = await db
+    .update(paymentIntents)
+    .set({
+      status: "submitted",
+      tx_hash: txHash.toLowerCase(),
+      payer: payer?.toLowerCase() ?? intent.payer,
+      updated_at: now,
+      next_verify_at: now,
+    })
+    .where(
+      and(
+        eq(paymentIntents.id, intentId),
+        notInArray(paymentIntents.status, TERMINAL_STATUSES),
+      ),
+    );
 
-  return getIntent(intentId)!;
+  if (res.rowsAffected === 0) {
+    const fresh = await getIntent(intentId);
+    if (!fresh) throw new IntentError("Payment intent not found.", 404);
+    throw new IntentError(`This payment is already ${fresh.status}.`, 409);
+  }
+  return (await getIntent(intentId)) ?? intent;
 }
 
-export function markIntent(
+export async function markIntent(
   id: string,
   patch: Partial<
-    Pick<PaymentIntent, "status" | "confirmations" | "block_number" | "error" | "tx_hash" | "payer">
-  > & { confirmed?: boolean }
-): void {
-  const sets: string[] = ["updated_at = @updated_at"];
-  const params: Record<string, unknown> = { id, updated_at: Date.now() };
-
-  for (const key of ["status", "confirmations", "block_number", "error", "tx_hash", "payer"] as const) {
-    if (patch[key] !== undefined) {
-      sets.push(`${key} = @${key}`);
-      params[key] = patch[key];
-    }
+    Pick<
+      PaymentIntent,
+      | "status"
+      | "confirmations"
+      | "block_number"
+      | "error"
+      | "tx_hash"
+      | "payer"
+      | "next_verify_at"
+      | "next_detect_at"
+    >
+  > & { confirmed?: boolean },
+): Promise<void> {
+  const sets: Partial<typeof paymentIntents.$inferInsert> = { updated_at: Date.now() };
+  for (const key of [
+    "status",
+    "confirmations",
+    "block_number",
+    "error",
+    "tx_hash",
+    "payer",
+    "next_verify_at",
+    "next_detect_at",
+  ] as const) {
+    if (patch[key] !== undefined) sets[key] = patch[key] as never;
   }
-  if (patch.confirmed) {
-    sets.push("confirmed_at = @confirmed_at");
-    params.confirmed_at = Date.now();
-  }
+  if (patch.confirmed) sets.confirmed_at = Date.now();
 
-  getDb()
-    .prepare(`UPDATE payment_intents SET ${sets.join(", ")} WHERE id = @id`)
-    .run(params);
+  const db = await getDb();
+  await db.update(paymentIntents).set(sets).where(eq(paymentIntents.id, id));
 }
 
-export function expireIntent(id: string, reason = "Payment expired before it was verified."): void {
-  markIntent(id, { status: "expired", error: reason });
+export async function expireIntent(
+  id: string,
+  reason = "Payment expired before it was verified.",
+): Promise<void> {
+  await markIntent(id, { status: "expired", error: reason });
 }
 
 export function toPublic(intent: PaymentIntent): PublicIntent {
   const info = testnetByKey(intent.chain_key);
   return {
     id: intent.id,
-    status: intent.status,
+    status: intent.status as IntentStatus,
     amountUsd: intent.amount_usd,
     token: intent.token,
     chainKey: intent.chain_key,

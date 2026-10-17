@@ -1,9 +1,14 @@
 import { NextResponse } from "next/server";
 import { createIntent, IntentError, toPublic } from "@/lib/intents";
+import { clientIp, rateLimit } from "@/lib/ratelimit";
+
 export async function POST(request: Request) {
   try {
+    if (!(await rateLimit("create-intent", clientIp(request), 30))) {
+      return NextResponse.json({ error: "Too many payment links. Slow down." }, { status: 429 });
+    }
     const body = await request.json();
-    const intent = createIntent({
+    const intent = await createIntent({
       slug: String(body.slug ?? "checkout"),
       title: String(body.title ?? "").slice(0, 200),
       merchant: String(body.merchant ?? "Merchant").slice(0, 200),

@@ -1,6 +1,7 @@
 import { createPublicClient, http, keccak256, numberToHex, pad, toBytes } from "viem";
 import { rpcUrl, testnetByKey, type TestnetInfo } from "./chains";
 import type { PaymentIntent } from "./db";
+import { getKv, setKv } from "./kv";
 import { REQUIRED_CONFIRMATIONS } from "./intents";
 
 const clientCache = new Map<string, ReturnType<typeof createPublicClient>>();
@@ -10,11 +11,27 @@ function clientFor(info: TestnetInfo) {
   if (!client) {
     client = createPublicClient({
       chain: info.viemChain,
-      transport: http(rpcUrl(info)),
+      // Batch concurrent calls into one JSON-RPC request where possible.
+      transport: http(rpcUrl(info), { batch: true }),
     });
     clientCache.set(info.key, client);
   }
   return client;
+}
+
+const HEAD_TTL_MS = 1_000;
+
+/**
+ * Chain head, shared across isolates via `kv` so a burst of polls costs one
+ * RPC round trip instead of one per request.
+ */
+export async function headBlockNumber(info: TestnetInfo): Promise<bigint> {
+  const key = `head:${info.key}`;
+  const cached = await getKv(key);
+  if (cached) return BigInt(cached);
+  const head = await clientFor(info).getBlockNumber();
+  await setKv(key, head.toString(), HEAD_TTL_MS);
+  return head;
 }
 
 export type VerifyOutcome =
@@ -48,8 +65,9 @@ export async function verifyIntent(intent: PaymentIntent): Promise<VerifyOutcome
   const receiver = intent.receiver.toLowerCase() as `0x${string}`;
 
   let receipt;
+  let tx;
   try {
-    receipt = await client.getTransactionReceipt({ hash });
+    [receipt, tx] = await Promise.all([client.getTransactionReceipt({ hash }), client.getTransaction({ hash })]);
   } catch (err) {
     if (isNotMined(err)) return { kind: "pending" };
     throw err;
@@ -57,14 +75,6 @@ export async function verifyIntent(intent: PaymentIntent): Promise<VerifyOutcome
 
   if (receipt.status !== "success") {
     return { kind: "failed", error: "Transaction reverted on-chain.", blockNumber: Number(receipt.blockNumber) };
-  }
-
-  let tx;
-  try {
-    tx = await client.getTransaction({ hash });
-  } catch (err) {
-    if (isNotMined(err)) return { kind: "pending" };
-    throw err;
   }
 
   if (intent.payer && tx.from.toLowerCase() !== intent.payer.toLowerCase()) {
@@ -84,17 +94,20 @@ export async function verifyIntent(intent: PaymentIntent): Promise<VerifyOutcome
     }
   } else {
     const transferTopic = keccak256(toBytes("Transfer(address,address,uint256)"));
-    const rawLogs = await client.request({
-      method: "eth_getLogs",
-      params: [
-        {
-          address: info.usdc,
-          topics: [transferTopic, null, pad(receiver, { size: 32 })],
-          fromBlock: numberToHex(receipt.blockNumber),
-          toBlock: numberToHex(receipt.blockNumber),
-        },
-      ],
-    });
+    const [rawLogs, head] = await Promise.all([
+      client.request({
+        method: "eth_getLogs",
+        params: [
+          {
+            address: info.usdc,
+            topics: [transferTopic, null, pad(receiver, { size: 32 })],
+            fromBlock: numberToHex(receipt.blockNumber),
+            toBlock: numberToHex(receipt.blockNumber),
+          },
+        ],
+      }),
+      headBlockNumber(info),
+    ]);
     const match = rawLogs.find((log) => {
       if (!log.data || log.data === "0x") return false;
       try {
@@ -110,9 +123,16 @@ export async function verifyIntent(intent: PaymentIntent): Promise<VerifyOutcome
         blockNumber: Number(receipt.blockNumber),
       };
     }
+
+    const confirmations = Number(head - receipt.blockNumber + 1n);
+    const blockNumber = Number(receipt.blockNumber);
+    if (confirmations >= REQUIRED_CONFIRMATIONS) {
+      return { kind: "confirmed", confirmations, blockNumber };
+    }
+    return { kind: "confirming", confirmations, blockNumber };
   }
 
-  const head = await client.getBlockNumber();
+  const head = await headBlockNumber(info);
   const confirmations = Number(head - receipt.blockNumber + 1n);
   const blockNumber = Number(receipt.blockNumber);
 
@@ -121,6 +141,8 @@ export async function verifyIntent(intent: PaymentIntent): Promise<VerifyOutcome
   }
   return { kind: "confirming", confirmations, blockNumber };
 }
+
+const ETHERSCAN_COOLDOWN_KEY = "etherscan:cooldown";
 
 /**
  * Optional QR auto-detect: look for an incoming transfer to the merchant
@@ -132,6 +154,9 @@ export async function detectIncomingTx(intent: PaymentIntent): Promise<string | 
 
   const info = testnetByKey(intent.chain_key);
   if (!info) return null;
+
+  // Global backoff: 429s freeze further calls until the provider says try again.
+  if (await getKv(ETHERSCAN_COOLDOWN_KEY)) return null;
 
   const expected = BigInt(intent.expected_units);
   const params = new URLSearchParams({
@@ -146,6 +171,12 @@ export async function detectIncomingTx(intent: PaymentIntent): Promise<string | 
   });
 
   const res = await fetch(`https://api.etherscan.io/v2/api?${params.toString()}`);
+  if (res.status === 429 || res.status === 403) {
+    const retryAfter = Math.max(1, Number(res.headers.get("retry-after")) || 15);
+    await setKv(ETHERSCAN_COOLDOWN_KEY, "1", retryAfter * 1000);
+    console.warn(`[verify] etherscan rate-limited (HTTP ${res.status}); backing off ${retryAfter}s`);
+    return null;
+  }
   if (!res.ok) return null;
   const data = (await res.json()) as {
     status?: string;

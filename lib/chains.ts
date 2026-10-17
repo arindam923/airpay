@@ -83,7 +83,7 @@ export const TESTNETS: Record<TestnetKey, TestnetInfo> = {
     chainId: polygonAmoy.id as SupportedChainId,
     viemChain: polygonAmoy,
     rpcEnv: "RPC_POLYGON_AMOY",
-    defaultRpc: "https://rpc-amoy.polygon.technology",
+    defaultRpc: "https://polygon-amoy-bor-rpc.publicnode.com",
     usdc: "0x41E94Eb019C0762f9Bfcf9Fb1E58725BfB0e7582",
     nativeSymbol: "POL",
     explorerTx: (hash) => `https://amoy.polygonscan.com/tx/${hash}`,
