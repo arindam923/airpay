@@ -15,6 +15,7 @@ import {
 } from "wagmi";
 import { AmountBlock, CoinPicker, NetworkPicker } from "./Pickers";
 import WalletModal from "./WalletModal";
+import Confetti from "./Confetti";
 import {
   coinsForChain,
   demoConfig,
@@ -1029,7 +1030,9 @@ export default function HostedCheckout({
         )}
 
         {phase === "success" && receipt && (
-          <div className="rounded-[var(--co-radius)] border-[length:var(--co-bw)] border-ink bg-cream p-6 shadow-[var(--co-shadow)]">
+          <>
+            <Confetti />
+            <div className="animate-success-in rounded-[var(--co-radius)] border-[length:var(--co-bw)] border-ink bg-cream p-6 shadow-[var(--co-shadow)]">
             <div className="flex flex-col items-center pt-2 text-center">
               <span className="flex h-16 w-16 items-center justify-center rounded-full border-[length:var(--co-bw)] border-ink bg-mint shadow-[var(--co-shadow-sm)]">
                 <svg width="26" height="26" viewBox="0 0 16 16" fill="none">
@@ -1111,8 +1114,9 @@ export default function HostedCheckout({
               className="mt-3 h-12 w-full rounded-[var(--co-btn-radius)] border-[length:var(--co-bw)] border-ink bg-cream text-[14.5px] font-semibold shadow-[var(--co-shadow-sm)] transition-all hover:-translate-y-0.5 hover:bg-sun hover:text-[#191410]"
             >
               Make another payment
-            </button>
-          </div>
+             </button>
+           </div>
+          </>
         )}
       </main>
 

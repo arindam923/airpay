@@ -69,7 +69,7 @@ export default function Topbar({ onMenu }: { onMenu: () => void }) {
       const p = rows.find((r) => r.id === n.paymentId);
       if (p) openPayment(p);
       else router.push("/dashboard/payments");
-    } else if (n.target === "payout") router.push("/dashboard/payouts");
+    } else if (n.target === "payout") router.push("/dashboard/transactions");
     else if (n.target === "webhook") router.push("/dashboard/webhooks");
     else router.push("/dashboard/api-keys");
   };
