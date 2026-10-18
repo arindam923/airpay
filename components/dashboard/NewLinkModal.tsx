@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDashboard } from "./DashboardContext";
 import { useOnboarding } from "./onboarding/useOnboarding";
 import { CHAINS, formatUsd, type AmountMode } from "@/components/pay/config";
@@ -19,10 +19,14 @@ function LinkModalBody() {
   const { closeNewLink } = useDashboard();
   const queryClient = useQueryClient();
   const { data: onboarding } = useOnboarding();
+  const { data: settings } = useQuery({
+    queryKey: ["settings"],
+    queryFn: async () => (await orpcClient.settings.get()) as { workspaceName?: string } | null,
+  });
   const pairs = onboarding?.enabledPairs ?? {};
   const chainKeys = Object.keys(pairs);
   const firstChain = chainKeys[0] ?? "";
-  const [merchant, setMerchant] = useState("Lattice Studio");
+  const [merchant, setMerchant] = useState("");
   const [title, setTitle] = useState("");
   const [mode, setMode] = useState<AmountMode>("fixed");
   const [amount, setAmount] = useState("");
@@ -42,6 +46,12 @@ function LinkModalBody() {
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [closeNewLink]);
+
+  useEffect(() => {
+    const name = settings?.workspaceName?.trim();
+    if (!name) return;
+    queueMicrotask(() => setMerchant((prev) => (prev.trim() === "" ? name : prev)));
+  }, [settings]);
 
   const chainName = (key: string) => CHAINS.find((c) => c.key === key)?.name ?? key;
   const coinsFor = (key: string) => pairs[key] ?? [];
@@ -249,7 +259,7 @@ function LinkModalBody() {
                 <input
                   value={merchant}
                   onChange={(e) => setMerchant(e.target.value)}
-                  placeholder="Lattice Studio"
+                   placeholder={settings?.workspaceName?.trim() || "Your workspace"}
                   className={`${field} ${errors.merchant ? invalid : ""}`}
                 />
                 {errors.merchant && <span className={errText}>{errors.merchant}</span>}
