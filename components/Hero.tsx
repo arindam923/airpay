@@ -98,107 +98,141 @@ export default function Hero() {
 }
 
 function HeroCard() {
-  return (
-    <div className="relative mx-auto h-[540px] max-w-[520px] animate-rise stagger-2" data-ui>
-      <div className="animate-hero-drift absolute right-6 top-1/2 h-80 w-80 -translate-y-1/2 rounded-full bg-gradient-to-br from-violet/35 via-pink/20 to-sun/30 blur-3xl" />
-      <div className="animate-hero-blob absolute -right-6 top-10 h-72 w-72 rounded-full bg-sun/80 blur-[1px]" />
-      <div className="animate-hero-ring absolute -left-10 bottom-24 h-40 w-40 rounded-full border-[3px] border-dashed border-violet/60" />
+  const chip = (hx: string, hy: string, hs: string, hr: string, delay: string) =>
+    ({ "--hx": hx, "--hy": hy, "--hs": hs, "--hr": hr, animationDelay: delay } as React.CSSProperties);
 
-      <div className="animate-float-a absolute -top-2 left-2 z-20 flex items-center gap-2.5 rounded-2xl border-2 border-ink bg-cream px-4 py-2.5 shadow-[4px_4px_0_var(--color-ink)]">
-        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-mint">
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-            <path
-              d="M2 6.5l2.5 2.5L10 3.5"
-              stroke="var(--color-ink)"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </span>
-        <div>
-          <p className="text-[12px] font-semibold leading-none">Payment received</p>
-          <p className="mt-1 text-[11px] leading-none text-ink-soft">confirmed in 0.78s</p>
+  return (
+    <div className="relative mx-auto h-[540px] max-w-[520px]" data-ui>
+      <div className="absolute right-6 top-1/2 h-80 w-80 -translate-y-1/2">
+        <div className="animate-hero-in h-full w-full" style={chip("80px", "-60px", "0.3", "-30deg", "0s")}>
+          <div className="h-full w-full animate-hero-drift rounded-full bg-gradient-to-br from-violet/35 via-pink/20 to-sun/30 blur-3xl" />
+        </div>
+      </div>
+      <div className="absolute -right-6 top-10 h-72 w-72">
+        <div className="animate-hero-in h-full w-full" style={chip("120px", "-80px", "0.2", "45deg", "0.15s")}>
+          <div className="h-full w-full animate-hero-blob rounded-full bg-sun/80 blur-[1px]" />
+        </div>
+      </div>
+      <div className="absolute -left-10 bottom-24 h-40 w-40">
+        <div className="animate-hero-in h-full w-full" style={chip("-100px", "80px", "0.3", "-90deg", "0.25s")}>
+          <div className="h-full w-full animate-hero-ring rounded-full border-[3px] border-dashed border-violet/60" />
+        </div>
+      </div>
+
+      <div className="absolute -top-2 left-2 z-20">
+        <div className="animate-hero-in" style={chip("-120px", "-40px", "0.5", "-15deg", "0.45s")}>
+          <div className="animate-float-a flex items-center gap-2.5 rounded-2xl border-2 border-ink bg-cream px-4 py-2.5 shadow-[4px_4px_0_var(--color-ink)]">
+            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-mint">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                <path
+                  d="M2 6.5l2.5 2.5L10 3.5"
+                  stroke="var(--color-ink)"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </span>
+            <div>
+              <p className="text-[12px] font-semibold leading-none">Payment received</p>
+              <p className="mt-1 text-[11px] leading-none text-ink-soft">confirmed in 0.78s</p>
+            </div>
+          </div>
         </div>
       </div>
 
       <div className="absolute left-1/2 top-1/2 z-10 w-[86%] max-w-[440px] -translate-x-1/2 -translate-y-1/2">
-        <div className="rounded-[20px] border-2 border-ink bg-cream p-6 shadow-[10px_10px_0_var(--color-ink)]">
-          <div className="flex items-center justify-between">
-            <p className="text-[13px] font-semibold uppercase tracking-[0.12em] text-ink-soft">
-              Payment link
-            </p>
-            <span className="flex items-center gap-1.5 rounded-full border-[1.5px] border-ink bg-mint px-2.5 py-1 text-[11px] font-semibold">
-              <span className="animate-pulse-dot h-1.5 w-1.5 rounded-full bg-ink" />
-              Active
-            </span>
-          </div>
-
-          <p className="mt-4 text-[15px] text-ink-soft">Invoice #1042 — Design package</p>
-          <p className="mt-1 font-sans text-[44px] font-medium leading-none tracking-[-0.03em]">
-            $1,250<span className="text-ink-soft">.00</span>
-          </p>
-
-          <p className="mt-5 text-[12px] font-semibold uppercase tracking-[0.12em] text-ink-soft">
-            Pay with
-          </p>
-          <div className="mt-2.5 flex gap-2">
-            {[
-              { s: "₿", c: "bg-sun" },
-              { s: "Ξ", c: "bg-violet text-cream" },
-              { s: "◎", c: "bg-mint" },
-              { s: "$", c: "bg-sky" },
-              { s: "S", c: "bg-pink text-cream" },
-            ].map((coin, i) => (
-              <span
-                key={i}
-                className={`flex h-10 w-10 items-center justify-center rounded-full border-[1.5px] border-ink text-[15px] font-semibold ${coin.c}`}
-              >
-                {coin.s}
+        <div className="animate-hero-in" style={chip("0px", "40px", "0.85", "0deg", "0.35s")}>
+          <div className="rounded-[20px] border-2 border-ink bg-cream p-6 shadow-[10px_10px_0_var(--color-ink)]">
+            <div className="flex items-center justify-between">
+              <p className="text-[13px] font-semibold uppercase tracking-[0.12em] text-ink-soft">
+                Payment link
+              </p>
+              <span className="flex items-center gap-1.5 rounded-full border-[1.5px] border-ink bg-mint px-2.5 py-1 text-[11px] font-semibold">
+                <span className="animate-pulse-dot h-1.5 w-1.5 rounded-full bg-ink" />
+                Active
               </span>
-            ))}
-          </div>
-
-          <div className="mt-5 flex items-center justify-between rounded-xl border-[1.5px] border-ink/15 bg-paper px-4 py-3">
-            <div>
-              <p className="text-[11px] text-ink-soft">To your wallet</p>
-              <p className="font-mono text-[13px]">0x7a3b…f29d</p>
             </div>
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-ink-soft">
-              <rect x="5" y="5" width="9" height="9" rx="2" stroke="currentColor" strokeWidth="1.5" />
-              <path d="M11 5V3a2 2 0 00-2-2H3a2 2 0 00-2 2v6a2 2 0 002 2h2" stroke="currentColor" strokeWidth="1.5" />
-            </svg>
+
+            <p className="mt-4 text-[15px] text-ink-soft">Invoice #1042 — Design package</p>
+            <p className="mt-1 font-sans text-[44px] font-medium leading-none tracking-[-0.03em]">
+              $1,250<span className="text-ink-soft">.00</span>
+            </p>
+
+            <p className="mt-5 text-[12px] font-semibold uppercase tracking-[0.12em] text-ink-soft">
+              Pay with
+            </p>
+            <div className="mt-2.5 flex gap-2">
+              {[
+                { s: "₿", c: "bg-sun" },
+                { s: "Ξ", c: "bg-violet text-cream" },
+                { s: "◎", c: "bg-mint" },
+                { s: "$", c: "bg-sky" },
+                { s: "S", c: "bg-pink text-cream" },
+              ].map((coin, i) => (
+                <span
+                  key={i}
+                  className={`animate-hero-in flex h-10 w-10 items-center justify-center rounded-full border-[1.5px] border-ink text-[15px] font-semibold ${coin.c}`}
+                  style={chip(`${(i - 2) * 18}px`, `${12 + i * 4}px`, "0.4", `${(i - 2) * 12}deg`, `${0.5 + i * 0.08}s`)}
+                >
+                  {coin.s}
+                </span>
+              ))}
+            </div>
+
+            <div className="mt-5 flex items-center justify-between rounded-xl border-[1.5px] border-ink/15 bg-paper px-4 py-3">
+              <div>
+                <p className="text-[11px] text-ink-soft">To your wallet</p>
+                <p className="font-mono text-[13px]">0x7a3b…f29d</p>
+              </div>
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-ink-soft">
+                <rect x="5" y="5" width="9" height="9" rx="2" stroke="currentColor" strokeWidth="1.5" />
+                <path d="M11 5V3a2 2 0 00-2-2H3a2 2 0 00-2 2v6a2 2 0 002 2h2" stroke="currentColor" strokeWidth="1.5" />
+              </svg>
+            </div>
+
+            <button className="mt-5 flex w-full items-center justify-center gap-2 rounded-full bg-violet py-3.5 text-[15px] font-semibold text-cream shadow-[3px_3px_0_var(--color-ink)] transition-all hover:bg-violet-deep">
+              Pay $1,250.00
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+
+            <p className="mt-4 flex items-center justify-center gap-1.5 text-[11px] text-ink-soft">
+              <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+                <rect x="2" y="4.5" width="7" height="5.5" rx="1.5" stroke="currentColor" strokeWidth="1.3" />
+                <path d="M3.8 4.5V3a1.8 1.8 0 013.5 0v1.5" stroke="currentColor" strokeWidth="1.3" />
+              </svg>
+              Secured by AirPay · Non-custodial
+            </p>
           </div>
-
-          <button className="mt-5 flex w-full items-center justify-center gap-2 rounded-full bg-violet py-3.5 text-[15px] font-semibold text-cream shadow-[3px_3px_0_var(--color-ink)] transition-all hover:bg-violet-deep">
-            Pay $1,250.00
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-              <path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </button>
-
-          <p className="mt-4 flex items-center justify-center gap-1.5 text-[11px] text-ink-soft">
-            <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-              <rect x="2" y="4.5" width="7" height="5.5" rx="1.5" stroke="currentColor" strokeWidth="1.3" />
-              <path d="M3.8 4.5V3a1.8 1.8 0 013.5 0v1.5" stroke="currentColor" strokeWidth="1.3" />
-            </svg>
-            Secured by AirPay · Non-custodial
-          </p>
         </div>
       </div>
 
-      <div className="animate-float-b absolute -left-2 bottom-6 z-20 flex h-24 w-24 flex-col items-center justify-center rounded-full border-2 border-ink bg-coral text-center shadow-[4px_4px_0_var(--color-ink)]">
-        <span className="text-[19px] font-semibold leading-none text-cream">0.9%</span>
-        <span className="mt-1 text-[10px] font-medium uppercase tracking-wide text-cream/80">
-          flat fee
-        </span>
+      <div className="absolute -left-2 bottom-6 z-20">
+        <div className="animate-hero-in" style={chip("-80px", "100px", "0.4", "30deg", "0.6s")}>
+          <div className="animate-float-b flex h-24 w-24 flex-col items-center justify-center rounded-full border-2 border-ink bg-coral text-center shadow-[4px_4px_0_var(--color-ink)]">
+            <span className="text-[19px] font-semibold leading-none text-cream">0.9%</span>
+            <span className="mt-1 text-[10px] font-medium uppercase tracking-wide text-cream/80">
+              flat fee
+            </span>
+          </div>
+        </div>
       </div>
 
-      <div className="animate-float-a absolute -right-1 top-24 z-20 flex h-14 w-14 items-center justify-center rounded-2xl border-2 border-ink bg-violet shadow-[4px_4px_0_var(--color-ink)]">
-        <span className="text-[20px] font-semibold text-cream">Ξ</span>
+      <div className="absolute -right-1 top-24 z-20">
+        <div className="animate-hero-in" style={chip("100px", "-60px", "0.4", "-45deg", "0.7s")}>
+          <div className="animate-float-a flex h-14 w-14 items-center justify-center rounded-2xl border-2 border-ink bg-violet shadow-[4px_4px_0_var(--color-ink)]">
+            <span className="text-[20px] font-semibold text-cream">Ξ</span>
+          </div>
+        </div>
       </div>
-      <div className="animate-float-b absolute bottom-40 right-0 z-20 flex h-12 w-12 items-center justify-center rounded-2xl border-2 border-ink bg-pink shadow-[4px_4px_0_var(--color-ink)]">
-        <span className="text-[17px] font-semibold text-cream">S</span>
+      <div className="absolute bottom-40 right-0 z-20">
+        <div className="animate-hero-in" style={chip("80px", "80px", "0.4", "60deg", "0.8s")}>
+          <div className="animate-float-b flex h-12 w-12 items-center justify-center rounded-2xl border-2 border-ink bg-pink shadow-[4px_4px_0_var(--color-ink)]">
+            <span className="text-[17px] font-semibold text-cream">S</span>
+          </div>
+        </div>
       </div>
     </div>
   );

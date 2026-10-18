@@ -176,6 +176,18 @@ body {
   }
 }
 
+@keyframes hero-in {
+  from {
+    opacity: 0;
+    transform: translate(var(--hx, 0px), var(--hy, 0px)) scale(var(--hs, 0.6))
+      rotate(var(--hr, 0deg));
+  }
+  to {
+    opacity: 1;
+    transform: translate(0, 0) scale(1) rotate(0deg);
+  }
+}
+
 @keyframes marquee {
   from {
     transform: translateX(0);
@@ -238,6 +250,10 @@ body {
   animation: hero-drift 9s ease-in-out infinite;
 }
 
+.animate-hero-in {
+  animation: hero-in 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
 .animate-marquee {
   animation: marquee 32s linear infinite;
 }
@@ -277,6 +293,7 @@ body {
   .animate-hero-blob,
   .animate-hero-ring,
   .animate-hero-drift,
+  .animate-hero-in,
   .animate-marquee,
   .animate-pulse-dot,
   .animate-draw,
