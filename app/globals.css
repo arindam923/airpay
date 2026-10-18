@@ -144,6 +144,38 @@ body {
   }
 }
 
+@keyframes hero-blob {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  33% {
+    transform: translate(-18px, 12px) scale(1.06);
+  }
+  66% {
+    transform: translate(14px, -10px) scale(0.96);
+  }
+}
+
+@keyframes hero-ring {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes hero-drift {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  50% {
+    transform: translate(8px, -12px);
+  }
+}
+
 @keyframes marquee {
   from {
     transform: translateX(0);
@@ -194,6 +226,18 @@ body {
   animation: float-b 6s ease-in-out infinite;
 }
 
+.animate-hero-blob {
+  animation: hero-blob 14s ease-in-out infinite;
+}
+
+.animate-hero-ring {
+  animation: hero-ring 28s linear infinite;
+}
+
+.animate-hero-drift {
+  animation: hero-drift 9s ease-in-out infinite;
+}
+
 .animate-marquee {
   animation: marquee 32s linear infinite;
 }
@@ -230,6 +274,9 @@ body {
   .animate-rise,
   .animate-float-a,
   .animate-float-b,
+  .animate-hero-blob,
+  .animate-hero-ring,
+  .animate-hero-drift,
   .animate-marquee,
   .animate-pulse-dot,
   .animate-draw,

@@ -99,9 +99,10 @@ export default function Hero() {
 
 function HeroCard() {
   return (
-    <div className="relative mx-auto h-[540px] max-w-[520px]" data-ui>
-      <div className="absolute -right-6 top-10 h-72 w-72 rounded-full bg-sun" />
-      <div className="absolute -left-10 bottom-24 h-40 w-40 rounded-full border-[3px] border-dashed border-violet/50" />
+    <div className="relative mx-auto h-[540px] max-w-[520px] animate-rise stagger-2" data-ui>
+      <div className="animate-hero-drift absolute right-6 top-1/2 h-80 w-80 -translate-y-1/2 rounded-full bg-gradient-to-br from-violet/35 via-pink/20 to-sun/30 blur-3xl" />
+      <div className="animate-hero-blob absolute -right-6 top-10 h-72 w-72 rounded-full bg-sun/80 blur-[1px]" />
+      <div className="animate-hero-ring absolute -left-10 bottom-24 h-40 w-40 rounded-full border-[3px] border-dashed border-violet/60" />
 
       <div className="animate-float-a absolute -top-2 left-2 z-20 flex items-center gap-2.5 rounded-2xl border-2 border-ink bg-cream px-4 py-2.5 shadow-[4px_4px_0_var(--color-ink)]">
         <span className="flex h-6 w-6 items-center justify-center rounded-full bg-mint">
