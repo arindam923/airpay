@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { QueryProvider } from "@/components/providers/QueryProvider";
 
 export const metadata: Metadata = {
   title: "AirPay — Crypto payments infrastructure",
@@ -19,7 +20,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         />
       </head>
       <body className="min-h-full flex flex-col bg-paper text-ink overflow-x-clip">
-        {children}
+        <QueryProvider>{children}</QueryProvider>
       </body>
     </html>
   );

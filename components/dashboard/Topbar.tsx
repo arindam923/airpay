@@ -2,20 +2,47 @@
 
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useDashboard } from "./DashboardContext";
-import { initialNotifications, payments } from "./data";
 import { pageTitleForPath } from "./nav";
+import { orpcClient } from "@/lib/orpc/client";
+import type { PublicIntent } from "@/lib/api-types";
+import { toPayment } from "./utils";
+import {
+  formatRelativeTime,
+  notificationStore,
+  notificationsFromIntents,
+  useNotifications,
+} from "./notifications";
 
 export default function Topbar({ onMenu }: { onMenu: () => void }) {
   const pathname = usePathname();
   const { setPaletteOpen, openNewLink, openPayment } = useDashboard();
   const title = pageTitleForPath(pathname);
 
-  const [notifs, setNotifs] = useState(initialNotifications);
+  const { data } = useQuery({
+    queryKey: ["payments"],
+    queryFn: async () => (await orpcClient.payments.listByOrg({})) as PublicIntent[],
+  });
+  const intents = useMemo(() => data ?? [], [data]);
+  const rows = useMemo(() => intents.map(toPayment), [intents]);
+
+  const notifs = useNotifications();
   const [bellOpen, setBellOpen] = useState(false);
   const bellRef = useRef<HTMLDivElement>(null);
   const unread = notifs.filter((n) => !n.read).length;
+
+  const [now, setNow] = useState(() => (typeof window === "undefined" ? 0 : Date.now()));
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (intents.length > 0) notificationStore.upsert(notificationsFromIntents(intents));
+  }, [intents]);
 
   useEffect(() => {
     if (!bellOpen) return;
@@ -36,10 +63,13 @@ export default function Topbar({ onMenu }: { onMenu: () => void }) {
   const openNotif = (id: string) => {
     const n = notifs.find((x) => x.id === id);
     if (!n) return;
-    setNotifs((prev) => prev.map((x) => (x.id === id ? { ...x, read: true } : x)));
+    notificationStore.markRead(id);
     setBellOpen(false);
-    if (n.target === "payment") openPayment(payments[0]);
-    else if (n.target === "payout") router.push("/dashboard/payouts");
+    if (n.target === "payment") {
+      const p = rows.find((r) => r.id === n.paymentId);
+      if (p) openPayment(p);
+      else router.push("/dashboard/payments");
+    } else if (n.target === "payout") router.push("/dashboard/payouts");
     else if (n.target === "webhook") router.push("/dashboard/webhooks");
     else router.push("/dashboard/api-keys");
   };
@@ -123,37 +153,62 @@ export default function Topbar({ onMenu }: { onMenu: () => void }) {
             <div className="absolute right-0 top-10 z-50 w-[330px] overflow-hidden rounded-xl border border-d-edge bg-d-panel shadow-2xl shadow-black/50">
               <div className="flex items-center justify-between border-b border-d-edge-soft px-4 py-3">
                 <p className="text-[13px] font-semibold text-d-ink">Notifications</p>
-                <button
-                  onClick={() => setNotifs((prev) => prev.map((n) => ({ ...n, read: true })))}
-                  className="text-[11.5px] font-medium text-d-accent transition-colors hover:text-d-ink"
-                >
-                  Mark all as read
-                </button>
-              </div>
-              <div className="max-h-[320px] overflow-y-auto">
-                {notifs.map((n) => (
+                {unread > 0 && (
                   <button
-                    key={n.id}
-                    onClick={() => openNotif(n.id)}
-                    className={`flex w-full gap-3 border-b border-d-edge-soft/60 px-4 py-3 text-left transition-colors last:border-0 hover:bg-d-raised ${
-                      n.read ? "opacity-60" : ""
-                    }`}
+                    onClick={() => notificationStore.markAllRead()}
+                    className="text-[11.5px] font-medium text-d-accent transition-colors hover:text-d-ink"
                   >
-                    <span
-                      className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${
-                        n.read ? "bg-d-edge" : "bg-d-accent"
-                      }`}
-                    />
-                    <span className="min-w-0">
-                      <span className="flex items-center justify-between gap-2">
-                        <span className="text-[13px] font-medium text-d-ink">{n.title}</span>
-                        <span className="shrink-0 text-[10.5px] text-d-muted">{n.time}</span>
-                      </span>
-                      <span className="mt-0.5 block truncate text-[12px] text-d-muted">{n.body}</span>
-                    </span>
+                    Mark all as read
                   </button>
-                ))}
+                )}
               </div>
+
+              {notifs.length === 0 ? (
+                <div className="flex flex-col items-center px-6 py-10 text-center">
+                  <span className="flex h-10 w-10 items-center justify-center rounded-xl border border-d-edge bg-d-raised text-d-muted">
+                    <svg width="18" height="18" viewBox="0 0 14 14" fill="none">
+                      <path
+                        d="M7 1.5a3.5 3.5 0 00-3.5 3.5c0 3-1 4-1.5 4.5h10c-.5-.5-1.5-1.5-1.5-4.5A3.5 3.5 0 007 1.5zM5.5 11.5a1.5 1.5 0 003 0"
+                        stroke="currentColor"
+                        strokeWidth="1.3"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </span>
+                  <p className="mt-3 text-[13px] font-medium text-d-ink">You&apos;re all caught up</p>
+                  <p className="mt-1 text-[11.5px] leading-[1.5] text-d-muted">
+                    New payment activity will show up here.
+                  </p>
+                </div>
+              ) : (
+                <div className="max-h-[320px] overflow-y-auto">
+                  {notifs.map((n) => (
+                    <button
+                      key={n.id}
+                      onClick={() => openNotif(n.id)}
+                      className={`flex w-full gap-3 border-b border-d-edge-soft/60 px-4 py-3 text-left transition-colors last:border-0 hover:bg-d-raised ${
+                        n.read ? "opacity-60" : ""
+                      }`}
+                    >
+                      <span
+                        className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${
+                          n.read ? "bg-d-edge" : "bg-d-accent"
+                        }`}
+                      />
+                      <span className="min-w-0">
+                        <span className="flex items-center justify-between gap-2">
+                          <span className="text-[13px] font-medium text-d-ink">{n.title}</span>
+                          <span className="shrink-0 text-[10.5px] text-d-muted">
+                            {formatRelativeTime(n.createdAt, now)}
+                          </span>
+                        </span>
+                        <span className="mt-0.5 block truncate text-[12px] text-d-muted">{n.body}</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>

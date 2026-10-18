@@ -16,10 +16,14 @@ const chipBase =
 export function NetworkPicker({
   value,
   onChange,
+  chains,
 }: {
   value: string;
   onChange: (chain: string) => void;
+  /** When provided, only these chain display names are offered. */
+  chains?: string[];
 }) {
+  const options = chains ? CHAINS.filter((c) => chains.includes(c.name)) : CHAINS;
   return (
     <div>
       <div className="mb-2 flex items-center justify-between">
@@ -29,7 +33,7 @@ export function NetworkPicker({
         </span>
       </div>
       <div className="flex flex-wrap gap-2">
-        {CHAINS.map((c) => {
+        {options.map((c) => {
           const selected = value === c.name;
           return (
             <button
@@ -63,12 +67,15 @@ export function CoinPicker({
   chain,
   value,
   onChange,
+  coins: allowedCoins,
 }: {
   chain: string;
   value: string;
   onChange: (coin: string) => void;
+  /** When provided, only these coins are offered for the current chain. */
+  coins?: string[];
 }) {
-  const coins = coinsForChain(chain);
+  const coins = allowedCoins ?? coinsForChain(chain);
   return (
     <div>
       <p className="mb-2 text-[13px] font-medium text-ink-soft">Coin</p>

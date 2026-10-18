@@ -1,15 +1,26 @@
 "use client";
 
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import PageHeader from "../PageHeader";
 import PaymentsTable from "../PaymentsTable";
 import ExportButton from "../ui/ExportButton";
 import { useDashboard } from "../DashboardContext";
-import { payments } from "../data";
+import { orpcClient } from "@/lib/orpc/client";
+import type { Payment } from "../data";
+import type { PublicIntent } from "@/lib/api-types";
+import { toPayment } from "../utils";
 
 export default function PaymentsPage() {
   const { openPayment, openNewLink } = useDashboard();
   const [query, setQuery] = useState("");
+
+  const { data } = useQuery({
+    queryKey: ["payments"],
+    queryFn: async () => (await orpcClient.payments.listByOrg({})) as PublicIntent[],
+  });
+
+  const payments = (data ?? []).map(toPayment);
 
   return (
     <>
@@ -38,7 +49,7 @@ export default function PaymentsPage() {
           </>
         }
       />
-      <PaymentsTable query={query} onSearch={setQuery} onRowClick={openPayment} />
+      <PaymentsTable query={query} onSearch={setQuery} onRowClick={openPayment as (p: Payment) => void} items={payments} />
     </>
   );
 }

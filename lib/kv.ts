@@ -73,6 +73,6 @@ function parseCounter(
 /** Housekeeping: drop stale kv rows (rate-limit windows, old caches). */
 export async function pruneKv(olderThanMs: number): Promise<number> {
   const db = await getDb();
-  const res = await db.delete(kv).where(lt(kv.updated_at, Date.now() - olderThanMs));
-  return res.rowsAffected;
+  const res = await db.delete(kv).where(lt(kv.updated_at, Date.now() - olderThanMs)).returning({ key: kv.key });
+  return res.length;
 }

@@ -1,7 +1,16 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+  type ReactNode,
+} from "react";
+import { useRouter } from "next/navigation";
 import type { Payment } from "./data";
+import { useOnboarding } from "./onboarding/useOnboarding";
 
 interface DashboardCtx {
   payment: Payment | null;
@@ -14,6 +23,7 @@ interface DashboardCtx {
   setPaletteOpen: (v: boolean) => void;
   customerQuery: string;
   setCustomerQuery: (q: string) => void;
+  onboarded: boolean;
 }
 
 const Ctx = createContext<DashboardCtx | null>(null);
@@ -25,10 +35,22 @@ export function useDashboard() {
 }
 
 export function DashboardProvider({ children }: { children: ReactNode }) {
+  const router = useRouter();
+  const { data: onboarding } = useOnboarding();
   const [payment, setPayment] = useState<Payment | null>(null);
   const [newLinkOpen, setNewLinkOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [customerQuery, setCustomerQuery] = useState("");
+
+  const onboarded = onboarding?.onboarded ?? false;
+
+  const openNewLink = useCallback(() => {
+    if (onboarding && !onboarding.onboarded) {
+      router.push("/dashboard/onboarding");
+      return;
+    }
+    setNewLinkOpen(true);
+  }, [onboarding, router]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -45,12 +67,13 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         openPayment: setPayment,
         closePayment: () => setPayment(null),
         newLinkOpen,
-        openNewLink: () => setNewLinkOpen(true),
+        openNewLink,
         closeNewLink: () => setNewLinkOpen(false),
         paletteOpen,
         setPaletteOpen,
         customerQuery,
         setCustomerQuery,
+        onboarded,
       }}
     >
       {children}

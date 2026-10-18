@@ -7,7 +7,7 @@ import DataTable, { type Column } from "./ui/DataTable";
 import SearchInput from "./ui/SearchInput";
 import Segmented from "./ui/Segmented";
 import StatusChip from "./ui/StatusChip";
-import { coinColors, payments, type Payment, type PaymentStatus } from "./data";
+import { coinColors, type Payment, type PaymentStatus } from "./data";
 
 type Filter = "All" | PaymentStatus;
 
@@ -70,15 +70,18 @@ export default function PaymentsTable({
   query = "",
   onSearch,
   onRowClick,
+  items,
 }: {
   query?: string;
   onSearch?: (q: string) => void;
   onRowClick?: (p: Payment) => void;
+  items: Payment[];
 }) {
   const [filter, setFilter] = useState<Filter>("All");
 
   const q = query.trim().toLowerCase();
-  const rows = payments.filter((p) => {
+  const source = items;
+  const rows = source.filter((p) => {
     const matchesFilter = filter === "All" || p.status === filter;
     const matchesQuery =
       !q ||
@@ -94,7 +97,7 @@ export default function PaymentsTable({
     <Card>
       <CardHeader
         title="Recent payments"
-        description={`${rows.length} of ${payments.length} payments`}
+        description={`${rows.length} of ${source.length} payments`}
         actions={
           <>
             {onSearch && (

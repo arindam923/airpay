@@ -31,8 +31,9 @@ export async function claimNextRun(
   const res = await db
     .update(paymentIntents)
     .set({ [field]: now + ttlMs })
-    .where(and(eq(paymentIntents.id, id), or(isNull(column), lt(column, now))));
-  return res.rowsAffected > 0;
+    .where(and(eq(paymentIntents.id, id), or(isNull(column), lt(column, now))))
+    .returning({ id: paymentIntents.id });
+  return res.length > 0;
 }
 
 /** Run `verifyIntent` and persist the outcome plus the next retry schedule. */
@@ -173,9 +174,10 @@ export async function prune(olderThanMs: number, kvOlderThanMs: number): Promise
         inArray(paymentIntents.status, [...TERMINAL]),
         lt(paymentIntents.updated_at, Date.now() - olderThanMs),
       ),
-    );
+    )
+    .returning({ id: paymentIntents.id });
   const kvRows = await pruneKv(kvOlderThanMs);
-  return { intents: res.rowsAffected, kv: kvRows };
+  return { intents: res.length, kv: kvRows };
 }
 
 export async function runMaintenance(opts: {

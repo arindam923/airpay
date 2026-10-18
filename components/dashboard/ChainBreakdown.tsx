@@ -1,14 +1,17 @@
 "use client";
 
-import { chains } from "./data";
+import { formatUsd, type ChainSlice } from "./metrics";
 
-export default function ChainBreakdown() {
-  const total = chains.reduce((a, c) => a + parseFloat(c.amount.replace(/[$,]/g, "")), 0);
+export default function ChainBreakdown({ chains }: { chains: ChainSlice[] }) {
+  const total = chains.reduce((sum, c) => sum + c.usd, 0);
 
-  const segments = chains.map((c, i) => ({
-    ...c,
-    offset: 25 - chains.slice(0, i).reduce((a, p) => a + p.pct, 0),
-  }));
+  const segments: (ChainSlice & { share: number; offset: number })[] = [];
+  let cursor = 0;
+  for (const c of chains) {
+    const share = total > 0 ? (c.usd / total) * 100 : 0;
+    segments.push({ ...c, share, offset: 25 - cursor });
+    cursor += share;
+  }
 
   return (
     <section className="flex flex-col rounded-2xl border border-d-edge d-card p-5">
@@ -37,14 +40,14 @@ export default function ChainBreakdown() {
                 strokeWidth="12"
                 strokeLinecap="butt"
                 pathLength={100}
-                strokeDasharray={`${c.pct} ${100 - c.pct}`}
+                strokeDasharray={`${c.share} ${100 - c.share}`}
                 strokeDashoffset={c.offset}
               />
             ))}
           </svg>
           <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
             <span className="font-mono text-[15px] font-semibold text-d-ink">
-              ${total.toLocaleString("en-US")}
+              {formatUsd(total)}
             </span>
             <span className="mt-0.5 text-[10px] text-d-muted">Total volume</span>
           </div>
@@ -61,12 +64,12 @@ export default function ChainBreakdown() {
                   />
                   {c.name}
                 </span>
-                <span className="font-mono text-[12px] text-d-muted">{c.amount}</span>
+                <span className="font-mono text-[12px] text-d-muted">{formatUsd(c.usd)}</span>
               </div>
               <div className="h-0.5 overflow-hidden rounded-full bg-d-edge-soft">
                 <div
                   className="h-full rounded-full"
-                  style={{ width: `${c.pct}%`, backgroundColor: c.color }}
+                  style={{ width: `${c.share}%`, backgroundColor: c.color }}
                 />
               </div>
             </div>

@@ -84,7 +84,7 @@ Open a checkout link (from the dashboard **New payment link**, or a demo: `http:
 
 The worker independently re-verifies every transaction on-chain (sender, recipient, exact amount, token contract, receipt status) and needs **2 confirmations** before the checkout shows *Payment confirmed*.
 
-Intents are stored in SQLite at `DATABASE_PATH` (`./data/airpay.db` by default) and expire after 15 minutes.
+Intents are stored in Neon Postgres via `DATABASE_URL` and expire after 15 minutes.
 
 ### Useful commands
 

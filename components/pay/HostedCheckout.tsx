@@ -24,7 +24,8 @@ import {
   paymentUri,
   type CheckoutConfig,
 } from "./config";
-import { testnetByName } from "@/lib/chains";
+import { testnetByName, testnetByKey } from "@/lib/chains";
+import type { PublicLink } from "@/lib/links";
 import { usdToUnits } from "@/lib/amounts";
 import { friendlyTxError } from "@/lib/errors";
 import { preflightPayment } from "@/lib/preflight";
@@ -169,7 +170,13 @@ function sameIntent(a: PublicIntent | null, b: PublicIntent): boolean {
   );
 }
 
-export default function HostedCheckout({ receiver }: { receiver: string }) {
+export default function HostedCheckout({
+  receiver,
+  link = null,
+}: {
+  receiver: string;
+  link?: PublicLink | null;
+}) {
   const [phase, setPhase] = useState<Phase>("loading");
   const [cfg, setCfg] = useState<CheckoutConfig | null>(null);
   const [amountText, setAmountText] = useState("");
@@ -192,6 +199,17 @@ export default function HostedCheckout({ receiver }: { receiver: string }) {
 
   const net = testnetByName(chain);
   const wrongNetwork = isConnected && net != null && chainId !== net.chainId;
+
+  // When the checkout is driven by a stored link, only offer the pairs the
+  // merchant enabled during onboarding.
+  const allowedChainNames = link
+    ? Object.keys(link.allowed).map((k) => testnetByKey(k)?.name ?? k)
+    : undefined;
+  const allowedCoinsFor = (chainName: string): string[] | undefined => {
+    if (!link) return undefined;
+    const key = testnetByName(chainName)?.key;
+    return key ? link.allowed[key] : undefined;
+  };
 
   const liveAmount = cfg ? (cfg.mode === "fixed" ? cfg.amount : parseFloat(amountText)) : NaN;
   let needUnits = 0n;
@@ -221,6 +239,29 @@ export default function HostedCheckout({ receiver }: { receiver: string }) {
   const insufficient = balanceUnits != null && needUnits > 0n && balanceUnits < needUnits;
 
   useEffect(() => {
+    if (link) {
+      const parsed: CheckoutConfig = {
+        slug: link.slug,
+        title: link.title,
+        merchant: link.merchant,
+        mode: link.mode,
+        amount: link.amountUsd,
+        min: link.min,
+        max: link.max,
+        chain: link.chainName,
+        coin: link.coin,
+      };
+      queueMicrotask(() => {
+        setCfg(parsed);
+        setAmountText(
+          parsed.mode === "flex" && parsed.amount > 0 ? String(parsed.amount) : ""
+        );
+        setChain(parsed.chain);
+        setCoin(parsed.coin);
+        setPhase("checkout");
+      });
+      return;
+    }
     const search = window.location.search;
     const parts = window.location.pathname.split("/").filter(Boolean);
     const slug = parts.length > 0 && parts[parts.length - 1] !== "pay" ? parts[parts.length - 1] : "";
@@ -241,7 +282,7 @@ export default function HostedCheckout({ receiver }: { receiver: string }) {
       setCoin(parsed.coin);
       setPhase("checkout");
     });
-  }, []);
+  }, [link]);
 
   // Poll while a QR intent is waiting for an (auto-detected) transaction.
   useEffect(() => {
@@ -577,9 +618,10 @@ export default function HostedCheckout({ receiver }: { receiver: string }) {
             <div className="mt-5 space-y-4">
               <NetworkPicker
                 value={chain}
+                chains={allowedChainNames}
                 onChange={(next) => {
                   setChain(next);
-                  const available = coinsForChain(next);
+                  const available = allowedCoinsFor(next) ?? coinsForChain(next);
                   if (!available.includes(coin)) setCoin(available[0]);
                 }}
               />
@@ -587,6 +629,7 @@ export default function HostedCheckout({ receiver }: { receiver: string }) {
                 chain={chain}
                 value={coin}
                 onChange={setCoin}
+                coins={allowedCoinsFor(chain)}
               />
             </div>
 

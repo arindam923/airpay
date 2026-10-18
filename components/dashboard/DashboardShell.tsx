@@ -7,6 +7,7 @@ import Topbar from "./Topbar";
 import CommandPalette from "./CommandPalette";
 import NewLinkModal from "./NewLinkModal";
 import PaymentDrawer from "./PaymentDrawer";
+import SetupBanner from "./SetupBanner";
 
 function Shell({ children }: { children: ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -29,9 +30,10 @@ function Shell({ children }: { children: ReactNode }) {
       <div className="lg:pl-[248px]">
         <Topbar onMenu={() => setSidebarOpen(true)} />
         <main className="mx-auto max-w-[1240px] px-4 py-6 md:px-6 md:py-8">
+          <SetupBanner />
           {children}
           <p className="mt-8 text-center text-[11.5px] text-d-muted/60">
-            Demo data — AirPay dashboard preview
+            AirPay dashboard
           </p>
         </main>
       </div>

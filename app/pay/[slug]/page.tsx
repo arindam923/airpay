@@ -1,5 +1,10 @@
 import type { Metadata } from "next";
 import HostedCheckout from "@/components/pay/HostedCheckout";
+import { getLinkBySlug, toPublicLink } from "@/lib/links";
+
+// The link lookup reads the database per request, so this route renders on
+// demand rather than being prerendered.
+export const instant = false;
 
 export const metadata: Metadata = {
   title: "Confirm payment — AirPay",
@@ -7,7 +12,10 @@ export const metadata: Metadata = {
     "Secure hosted checkout powered by AirPay. Select your network and coin and confirm the payment.",
 };
 
-export default function PayPage() {
-  const receiver = process.env.RECEIVER_ADDRESS ?? "";
-  return <HostedCheckout receiver={receiver} />;
+export default async function PayPage({ params }: PageProps<"/pay/[slug]">) {
+  const { slug } = await params;
+  const row = await getLinkBySlug(slug);
+  const link = row && row.active ? toPublicLink(row) : null;
+  const receiver = link?.receiver ?? process.env.RECEIVER_ADDRESS ?? "";
+  return <HostedCheckout receiver={receiver} link={link} />;
 }

@@ -1,14 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
+import { useQueryClient } from "@tanstack/react-query";
 import { useDashboard } from "./DashboardContext";
-import {
-  CHAINS,
-  buildCheckoutUrl,
-  coinsForChain,
-  formatUsd,
-  type AmountMode,
-} from "@/components/pay/config";
+import { useOnboarding } from "./onboarding/useOnboarding";
+import { CHAINS, formatUsd, type AmountMode } from "@/components/pay/config";
+import { orpcClient } from "@/lib/orpc/client";
 import CopyButton from "./ui/CopyButton";
 
 export default function NewLinkModal() {
@@ -19,6 +17,11 @@ export default function NewLinkModal() {
 
 function LinkModalBody() {
   const { closeNewLink } = useDashboard();
+  const queryClient = useQueryClient();
+  const { data: onboarding } = useOnboarding();
+  const pairs = onboarding?.enabledPairs ?? {};
+  const chainKeys = Object.keys(pairs);
+  const firstChain = chainKeys[0] ?? "";
   const [merchant, setMerchant] = useState("Lattice Studio");
   const [title, setTitle] = useState("");
   const [mode, setMode] = useState<AmountMode>("fixed");
@@ -26,11 +29,13 @@ function LinkModalBody() {
   const [min, setMin] = useState("");
   const [sugg, setSugg] = useState("");
   const [max, setMax] = useState("");
-  const [chain, setChain] = useState(CHAINS[0].name);
-  const [coin, setCoin] = useState(CHAINS[0].coins[0]);
+  const [chain, setChain] = useState(firstChain);
+  const [coin, setCoin] = useState(pairs[firstChain]?.[0] ?? "");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [link, setLink] = useState<string | null>(null);
   const [summary, setSummary] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && closeNewLink();
@@ -38,16 +43,20 @@ function LinkModalBody() {
     return () => document.removeEventListener("keydown", onKey);
   }, [closeNewLink]);
 
+  const chainName = (key: string) => CHAINS.find((c) => c.key === key)?.name ?? key;
+  const coinsFor = (key: string) => pairs[key] ?? [];
+
   const num = (v: string): number => {
     const n = parseFloat(v);
     return Number.isFinite(n) ? n : NaN;
   };
 
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     const errs: Record<string, string> = {};
     if (!merchant.trim()) errs.merchant = "Merchant name is required";
     if (!title.trim()) errs.title = "Title is required";
+    if (!chain) errs.network = "Enable a network in setup first";
 
     let outAmount = 0;
     let outMin = 0;
@@ -76,25 +85,37 @@ function LinkModalBody() {
     setErrors(errs);
     if (Object.keys(errs).length > 0) return;
 
-    const slug = Math.random().toString(36).slice(2, 8);
-    const url = buildCheckoutUrl(window.location.origin, slug, {
-      title: title.trim(),
-      merchant: merchant.trim(),
-      mode,
-      amount: outAmount,
-      min: outMin,
-      max: outMax,
-      chain,
-      coin,
-    });
-    setSummary(
-      mode === "fixed"
-        ? `${formatUsd(outAmount)} · ${coin} on ${chain}`
-        : `Customer decides · ${formatUsd(outMin)} – ${
-            outMax != null ? formatUsd(outMax) : "no max"
-          }${outAmount > 0 ? ` · suggested ${formatUsd(outAmount)}` : ""}`
-    );
-    setLink(url);
+    setCreating(true);
+    setSubmitError(null);
+    try {
+      const created = (await orpcClient.links.create({
+        title: title.trim(),
+        merchant: merchant.trim(),
+        mode,
+        amount: outAmount,
+        min: mode === "fixed" ? 0 : outMin,
+        max: mode === "fixed" ? null : outMax,
+        chain,
+        coin,
+      })) as { slug: string };
+      queryClient.invalidateQueries({ queryKey: ["links"] });
+      setSummary(
+        mode === "fixed"
+          ? `${formatUsd(outAmount)} · ${coin} on ${chainName(chain)}`
+          : `Customer decides · ${formatUsd(outMin)} – ${
+              outMax != null ? formatUsd(outMax) : "no max"
+            }${outAmount > 0 ? ` · suggested ${formatUsd(outAmount)}` : ""}`
+      );
+      setLink(`${window.location.origin}/pay/${created.slug}`);
+    } catch (err) {
+      const message =
+        err && typeof err === "object" && "message" in err
+          ? String((err as { message?: string }).message)
+          : "Could not create the payment link.";
+      setSubmitError(message);
+    } finally {
+      setCreating(false);
+    }
   };
 
   const reset = () => {
@@ -107,12 +128,47 @@ function LinkModalBody() {
     setErrors({});
     setLink(null);
     setSummary("");
+    setSubmitError(null);
   };
 
   const field =
     "h-10 w-full rounded-lg border border-d-edge bg-d-raised px-3.5 text-[13.5px] text-d-ink placeholder:text-d-muted/60 focus:border-d-accent focus:outline-none";
   const invalid = "border-d-failed focus:border-d-failed";
   const errText = "mt-1 block text-[11.5px] font-medium text-d-failed";
+
+  if (onboarding && !onboarding.onboarded) {
+    return (
+      <div
+        className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm"
+        onClick={closeNewLink}
+      >
+        <div
+          className="w-full max-w-[420px] overflow-hidden rounded-2xl border border-d-edge bg-d-panel p-6 shadow-d-pop"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <h2 className="text-[15px] font-medium text-d-ink">Finish setup first</h2>
+          <p className="mt-1.5 text-[13px] leading-[1.5] text-d-muted">
+            Add your networks and payout wallet before creating payment links.
+          </p>
+          <div className="mt-5 flex justify-end gap-2">
+            <button
+              onClick={closeNewLink}
+              className="h-10 rounded-lg border border-d-edge px-4 text-[13px] font-medium text-d-muted transition-colors hover:bg-d-raised hover:text-d-ink"
+            >
+              Not now
+            </button>
+            <Link
+              href="/dashboard/onboarding"
+              onClick={closeNewLink}
+              className="d-glow flex h-10 items-center rounded-lg bg-d-accent px-4 text-[13px] font-medium text-cream transition-colors hover:bg-d-accent-deep"
+            >
+              Finish setup
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -310,17 +366,18 @@ function LinkModalBody() {
                   value={chain}
                   onChange={(e) => {
                     setChain(e.target.value);
-                    const coins = coinsForChain(e.target.value);
-                    if (!coins.includes(coin)) setCoin(coins[0]);
+                    const coins = coinsFor(e.target.value);
+                    if (!coins.includes(coin)) setCoin(coins[0] ?? "");
                   }}
                   className={field}
                 >
-                  {CHAINS.map((c) => (
-                    <option key={c.name} value={c.name}>
-                      {c.name}
+                  {chainKeys.map((key) => (
+                    <option key={key} value={key}>
+                      {chainName(key)}
                     </option>
                   ))}
                 </select>
+                {errors.network && <span className={errText}>{errors.network}</span>}
               </label>
               <label className="block">
                 <span className="mb-1.5 block text-[12px] font-medium text-d-muted">
@@ -331,7 +388,7 @@ function LinkModalBody() {
                   onChange={(e) => setCoin(e.target.value)}
                   className={field}
                 >
-                  {coinsForChain(chain).map((c) => (
+                  {coinsFor(chain).map((c) => (
                     <option key={c} value={c}>
                       {c}
                     </option>
@@ -341,9 +398,15 @@ function LinkModalBody() {
             </div>
 
             <p className="text-[11.5px] leading-[1.5] text-d-muted">
-              Payers can switch the network and coin on the checkout page — these
-              are just the pre-selected defaults.
+              Payers can switch between your enabled networks and coins on the
+              checkout page — these are the pre-selected defaults.
             </p>
+
+            {submitError && (
+              <p className="rounded-lg border border-d-failed/40 bg-d-failed/10 px-3.5 py-2.5 text-[12.5px] font-medium text-d-failed">
+                {submitError}
+              </p>
+            )}
 
             <div className="mt-1 flex justify-end gap-2">
               <button
@@ -355,9 +418,10 @@ function LinkModalBody() {
               </button>
               <button
                 type="submit"
-                className="d-glow rounded-lg bg-d-accent px-4 py-2 text-[13px] font-medium text-cream transition-colors hover:bg-d-accent-deep"
+                disabled={creating}
+                className="d-glow rounded-lg bg-d-accent px-4 py-2 text-[13px] font-medium text-cream transition-colors hover:bg-d-accent-deep disabled:cursor-not-allowed disabled:opacity-60"
               >
-                Create link
+                {creating ? "Creating…" : "Create link"}
               </button>
             </div>
           </form>

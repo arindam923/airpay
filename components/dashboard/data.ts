@@ -2,51 +2,6 @@ export type RangeKey = "24H" | "7D" | "30D" | "90D";
 
 export const ranges: RangeKey[] = ["24H", "7D", "30D", "90D"];
 
-export const chartData: Record<RangeKey, { label: string; points: number[]; volumes: number[] }> = {
-  "24H": {
-    label: "Today",
-    points: [42, 48, 45, 61, 58, 72, 69, 84, 79, 92, 88, 104, 97, 118, 110, 126, 121, 138, 149],
-    volumes: [58, 63, 62, 84, 79, 96, 95, 112, 108, 122, 119, 138, 134, 155, 148, 166, 164, 180, 192],
-  },
-  "7D": {
-    label: "Last 7 days",
-    points: [68, 74, 71, 86, 95, 89, 104, 98, 112, 121, 116, 134, 128, 146, 158, 149, 168, 176, 184],
-    volumes: [92, 98, 96, 115, 127, 121, 139, 134, 149, 161, 158, 177, 172, 194, 209, 201, 222, 233, 241],
-  },
-  "30D": {
-    label: "Last 30 days",
-    points: [52, 61, 58, 66, 74, 70, 83, 91, 86, 99, 108, 102, 117, 126, 119, 138, 149, 141, 158, 167, 159, 176, 188, 179, 196, 207, 198, 218, 229, 242],
-    volumes: [71, 82, 79, 89, 99, 96, 111, 121, 117, 132, 144, 139, 156, 167, 161, 183, 198, 190, 211, 221, 214, 234, 249, 240, 260, 274, 266, 290, 302, 317],
-  },
-  "90D": {
-    label: "Last 90 days",
-    points: [30, 36, 34, 42, 40, 49, 46, 55, 52, 61, 68, 63, 72, 79, 74, 86, 92, 88, 99, 106, 101, 113, 121, 116, 130, 139, 133, 146, 155, 149, 162, 171, 165, 179, 188, 182, 196, 207, 201, 216, 226, 219, 234, 245, 238, 254, 265, 258, 274, 286, 279, 295, 307, 300, 318, 330],
-    volumes: [45, 52, 50, 58, 56, 67, 64, 74, 71, 83, 91, 86, 97, 106, 101, 115, 123, 119, 133, 142, 137, 151, 162, 157, 174, 185, 179, 195, 207, 201, 216, 228, 221, 239, 251, 245, 262, 276, 271, 288, 300, 293, 311, 324, 317, 337, 350, 344, 363, 379, 372, 390, 404, 398, 421, 436],
-  },
-};
-
-export const xLabels: Record<RangeKey, string[]> = {
-  "24H": ["12am", "3am", "6am", "9am", "12pm", "3pm", "6pm", "9pm"],
-  "7D": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
-  "30D": ["Week 1", "Week 2", "Week 3", "Week 4"],
-  "90D": ["Jan", "Feb", "Mar", "Apr", "May", "Jun"],
-};
-
-export const stats = [
-  { label: "Total volume", value: "$284,210", delta: "+12.4%", up: true, spark: [12, 18, 14, 22, 19, 28, 24, 33, 30, 38, 35, 44] },
-  { label: "Payments", value: "1,847", delta: "+8.1%", up: true, spark: [20, 24, 22, 30, 27, 34, 31, 38, 36, 42, 40, 47] },
-  { label: "Success rate", value: "99.7%", delta: "+0.2%", up: true, spark: [88, 90, 89, 91, 93, 92, 94, 95, 94, 96, 97, 97.7] },
-  { label: "Avg. confirmation", value: "0.78s", delta: "-0.04s", up: true, spark: [1.4, 1.2, 1.3, 1.1, 1.0, 1.05, 0.95, 0.9, 0.88, 0.84, 0.8, 0.78] },
-];
-
-export const chains = [
-  { name: "Ethereum", symbol: "Ξ", amount: "$98,420", pct: 38, color: "#8a94ff" },
-  { name: "Base", symbol: "B", amount: "$71,380", pct: 27, color: "#0052ff" },
-  { name: "Bitcoin", symbol: "₿", amount: "$54,120", pct: 21, color: "#f7931a" },
-  { name: "Solana", symbol: "◎", amount: "$31,860", pct: 9, color: "#9945ff" },
-  { name: "Other chains", symbol: "+", amount: "$28,430", pct: 5, color: "#8b8b96" },
-];
-
 export type PaymentStatus = "Confirmed" | "Pending" | "Failed";
 
 export interface Payment {
@@ -197,20 +152,4 @@ export const auditEvents: AuditEvent[] = [
   { id: "ae_07", title: "Default settlement currency changed to USDC", actor: "Arindam Roy", type: "Settings", time: "3d ago" },
   { id: "ae_06", title: "Payment pay_2y6u1g failed — insufficient gas", actor: "System", type: "Payments", time: "3d ago" },
   { id: "ae_05", title: "Two-factor authentication enabled", actor: "Arindam Roy", type: "Security", time: "5d ago" },
-];
-
-export interface AppNotification {
-  id: string;
-  title: string;
-  body: string;
-  time: string;
-  read: boolean;
-  target: "payment" | "payout" | "webhook" | "key";
-}
-
-export const initialNotifications: AppNotification[] = [
-  { id: "n1", title: "Payment confirmed", body: "pay_9x2k4f · $1,240.00 USDC on Base", time: "2m ago", read: false, target: "payment" },
-  { id: "n2", title: "Payout processed", body: "po_7kd21x · $12,400.00 to 0x7a3b…f29d", time: "1h ago", read: false, target: "payout" },
-  { id: "n3", title: "Webhook delivery failed", body: "staging.vitra.app returned HTTP 500", time: "3h ago", read: false, target: "webhook" },
-  { id: "n4", title: "API key created", body: "live_prod · full access", time: "1d ago", read: true, target: "key" },
 ];

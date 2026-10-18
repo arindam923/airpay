@@ -1,7 +1,8 @@
 "use client";
 
 import { useId, useMemo, useState } from "react";
-import { chartData, ranges, xLabels, type RangeKey } from "./data";
+import { ranges, type RangeKey } from "./data";
+import { formatUsd, type ChartSeries } from "./metrics";
 
 const W = 720;
 const H = 260;
@@ -31,10 +32,14 @@ function smoothPath(pts: { x: number; y: number }[]) {
   return d;
 }
 
+const fmtAxis = (v: number) => (v >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${Math.round(v)}`);
+
 export default function RevenueChart({
+  series,
   range,
   onRange,
 }: {
+  series: ChartSeries;
   range: RangeKey;
   onRange: (r: RangeKey) => void;
 }) {
@@ -47,19 +52,20 @@ export default function RevenueChart({
   };
 
   const { line, area, pts, max, min, bars, step } = useMemo(() => {
-    const data = chartData[range].points;
-    const vols = chartData[range].volumes;
-    const max = Math.max(...data);
-    const min = Math.min(...data);
+    const data = series.points;
+    const vols = series.volumes;
+    const max = Math.max(...data, 0);
+    const min = Math.min(...data, 0);
     const span = max - min || 1;
-    const volMax = Math.max(...vols) || 1;
+    const volMax = Math.max(...vols, 0) || 1;
+    const last = data.length - 1 || 1;
     const pts = data.map((v, i) => ({
-      x: PAD_LEFT + (i / (data.length - 1)) * PLOT_W,
+      x: PAD_LEFT + (i / last) * PLOT_W,
       y: PAD_TOP + (1 - (v - min) / span) * PLOT_H,
     }));
     const line = smoothPath(pts);
     const area = `${line} L ${pts[pts.length - 1].x} ${H - PAD_BOTTOM} L ${pts[0].x} ${H - PAD_BOTTOM} Z`;
-    const step = PLOT_W / (data.length - 1);
+    const step = PLOT_W / last;
     const barW = (PLOT_W / data.length) * BAR_W_RATIO;
     const barZone = PLOT_H * BAR_ZONE_RATIO;
     const bars = vols.map((v, i) => {
@@ -67,10 +73,10 @@ export default function RevenueChart({
       return { x: pts[i].x - barW / 2, y: H - PAD_BOTTOM - h, w: barW, h };
     });
     return { line, area, pts, max, min, bars, step };
-  }, [range]);
+  }, [series]);
 
   const gridYs = [0, 1, 2, 3].map((i) => PAD_TOP + (i / 3) * PLOT_H);
-  const fmt = (v: number) => `$${(v / 10).toFixed(1)}k`;
+  const labelIndex = hover != null ? Math.round((hover / (series.points.length - 1 || 1)) * (series.xLabels.length - 1)) : 0;
 
   return (
     <section className="rounded-2xl border border-d-edge d-card p-5">
@@ -78,7 +84,7 @@ export default function RevenueChart({
         <div>
           <h2 className="text-[14px] font-medium text-d-ink">Revenue</h2>
           <p className="mt-0.5 text-[12px] text-d-muted">
-            {chartData[range].label} · {fmt(min)} — {fmt(max)}
+            {series.label} · {fmtAxis(min)} — {fmtAxis(max)}
           </p>
         </div>
         <div className="flex gap-0.5 rounded-lg border border-d-edge bg-d-raised p-0.5">
@@ -145,7 +151,7 @@ export default function RevenueChart({
                 fill="var(--color-d-muted)"
                 opacity="0.7"
               >
-                {fmt(max - (i / 3) * (max - min))}
+                {fmtAxis(max - (i / 3) * (max - min))}
               </text>
             </g>
           ))}
@@ -216,11 +222,11 @@ export default function RevenueChart({
             </g>
           )}
 
-          {xLabels[range].map((l, i, arr) => {
-            const x = PAD_LEFT + (i / (arr.length - 1)) * PLOT_W;
+          {series.xLabels.map((l, i, arr) => {
+            const x = PAD_LEFT + (i / (arr.length - 1 || 1)) * PLOT_W;
             const anchor = i === 0 ? "start" : i === arr.length - 1 ? "end" : "middle";
             return (
-              <text key={l} x={x} y={H - 8} textAnchor={anchor} fontSize="10" fill="var(--color-d-muted)" opacity="0.8">
+              <text key={`${l}-${i}`} x={x} y={H - 8} textAnchor={anchor} fontSize="10" fill="var(--color-d-muted)" opacity="0.8">
                 {l}
               </text>
             );
@@ -233,13 +239,13 @@ export default function RevenueChart({
             style={{ left: `${(pts[hover].x / W) * 100}%` }}
           >
             <p className="font-mono text-[12px] font-semibold text-d-ink">
-              ${(chartData[range].points[hover] * 100).toLocaleString("en-US")}
+              {formatUsd(series.points[hover])}
             </p>
             <p className="text-[10px] text-d-muted">
-              {chartData[range].volumes[hover]} txns
+              {series.volumes[hover]} txns
             </p>
             <p className="text-[9px] text-d-muted opacity-80">
-              {xLabels[range][Math.round((hover / (chartData[range].points.length - 1)) * (xLabels[range].length - 1))]}
+              {series.xLabels[labelIndex]}
             </p>
           </div>
         )}

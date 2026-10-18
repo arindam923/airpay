@@ -14,6 +14,8 @@ export const REQUIRED_CONFIRMATIONS = 2;
 export const TERMINAL_STATUSES: IntentStatus[] = ["confirmed", "failed", "expired"];
 
 export interface CreateIntentInput {
+  organizationId?: string | null;
+  createdBy?: string | null;
   slug: string;
   title: string;
   merchant: string;
@@ -23,6 +25,8 @@ export interface CreateIntentInput {
   max: number | null;
   chain: string;
   coin: string;
+  /** Overrides the global RECEIVER_ADDRESS (e.g. the org's payout wallet). */
+  receiver?: string | null;
 }
 
 export class IntentError extends Error {
@@ -61,9 +65,16 @@ export async function createIntent(input: CreateIntentInput): Promise<PaymentInt
   const expectedUnits = usdToUnits(input.amount, input.coin);
   if (expectedUnits <= 0n) throw new IntentError("Amount is too small for on-chain settlement.");
 
+  const receiver = input.receiver?.trim();
+  if (receiver && !/^0x[0-9a-fA-F]{40}$/.test(receiver)) {
+    throw new IntentError("Invalid receiver address.", 500);
+  }
+
   const now = Date.now();
   const intent: PaymentIntent = {
     id: randomUUID(),
+    organizationId: input.organizationId ?? null,
+    createdBy: input.createdBy ?? null,
     slug: input.slug,
     title: input.title,
     merchant: input.merchant,
@@ -72,7 +83,7 @@ export async function createIntent(input: CreateIntentInput): Promise<PaymentInt
     chain_key: info.key,
     token: input.coin,
     expected_units: expectedUnits.toString(),
-    receiver: receiverAddress(),
+    receiver: receiver ?? receiverAddress(),
     payer: null,
     tx_hash: null,
     status: "awaiting_payment",
@@ -145,9 +156,10 @@ export async function attachTx({ intentId, txHash, payer }: SubmitInput): Promis
         eq(paymentIntents.id, intentId),
         notInArray(paymentIntents.status, TERMINAL_STATUSES),
       ),
-    );
+    )
+    .returning({ id: paymentIntents.id });
 
-  if (res.rowsAffected === 0) {
+  if (res.length === 0) {
     const fresh = await getIntent(intentId);
     if (!fresh) throw new IntentError("Payment intent not found.", 404);
     throw new IntentError(`This payment is already ${fresh.status}.`, 409);

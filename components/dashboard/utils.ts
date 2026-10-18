@@ -1,3 +1,25 @@
+import type { PublicIntent } from "@/lib/api-types";
+import type { Payment } from "./data";
+
+export function toPayment(p: PublicIntent): Payment {
+  const status: Payment["status"] =
+    p.status === "confirmed"
+      ? "Confirmed"
+      : p.status === "failed" || p.status === "expired"
+        ? "Failed"
+        : "Pending";
+  return {
+    id: p.id,
+    customer: p.merchant,
+    email: "",
+    amount: `$${p.amountUsd.toFixed(2)}`,
+    coin: p.token,
+    chain: p.chainName,
+    status,
+    time: new Date(p.createdAt).toLocaleString(),
+  };
+}
+
 export async function copyText(text: string): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(text);
