@@ -135,6 +135,25 @@ export const kv = pgTable("kv", {
   updated_at: bigint("updated_at", { mode: "number" }).notNull(),
 });
 
+export const waitlistEntries = pgTable(
+  "waitlist_entries",
+  {
+    id: text("id").primaryKey(),
+    email: text("email").notNull(),
+    emailNormalized: text("email_normalized").notNull(),
+    ipHash: text("ip_hash"),
+    userAgent: text("user_agent"),
+    source: text("source").notNull().default("landing"),
+    status: text("status").$type<"pending" | "invited" | "removed">().notNull().default("pending"),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  },
+  (t) => [
+    uniqueIndex("uq_waitlist_email").on(t.emailNormalized),
+    index("idx_waitlist_created").on(t.createdAt),
+    index("idx_waitlist_status").on(t.status),
+  ],
+);
+
 export const apiKeys = pgTable(
   "api_keys",
   {
