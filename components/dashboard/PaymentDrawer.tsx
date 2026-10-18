@@ -2,11 +2,21 @@
 
 import { useEffect, useState } from "react";
 import { useDashboard } from "./DashboardContext";
-import { coinColors } from "./data";
-import { copyText, fakeTxHash } from "./utils";
+import { coinColor } from "./data";
+import { copyText, shortWallet } from "./utils";
+import { feeUsd, formatFeePercent, netUsd } from "@/lib/fees";
 import StatusChip from "./ui/StatusChip";
 import KvList from "./ui/KvList";
 import CopyButton from "./ui/CopyButton";
+
+function fmtTime(ms: number): string {
+  return new Date(ms).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
 
 export default function PaymentDrawer() {
   const { payment, closePayment } = useDashboard();
@@ -21,10 +31,35 @@ export default function PaymentDrawer() {
 
   if (!payment) return null;
 
-  const gross = parseFloat(payment.amount.replace(/[$,]/g, ""));
-  const fee = Math.round(gross * 0.009 * 100) / 100;
-  const net = Math.round((gross - fee) * 100) / 100;
-  const tx = fakeTxHash(payment.id);
+  const gross = payment.amountUsd;
+  const fee = feeUsd(gross);
+  const net = netUsd(gross);
+
+  const finalLabel =
+    payment.statusRaw === "confirmed"
+      ? "Confirmed"
+      : payment.statusRaw === "failed"
+        ? "Failed"
+        : payment.statusRaw === "expired"
+          ? "Expired"
+          : "Awaiting confirmation";
+
+  const steps: { label: string; time: number; tone: "done" | "active" | "failed" | "pending" }[] = [
+    { label: "Payment created", time: payment.createdAt, tone: "done" },
+  ];
+  if (payment.txHash) {
+    steps.push({ label: "Transaction submitted", time: payment.createdAt, tone: "done" });
+  }
+  steps.push({
+    label: finalLabel,
+    time: payment.confirmedAt ?? payment.createdAt,
+    tone:
+      payment.statusRaw === "confirmed"
+        ? "done"
+        : payment.status === "Failed"
+          ? "failed"
+          : "pending",
+  });
 
   const doCopy = async (key: string, text: string) => {
     if (await copyText(text)) {
@@ -32,18 +67,6 @@ export default function PaymentDrawer() {
       setTimeout(() => setCopied(null), 1500);
     }
   };
-
-  const steps = [
-    { label: "Payment created", done: true, time: "just now" },
-    { label: "Broadcast to network", done: true, time: "just now" },
-    {
-      label: payment.status === "Failed" ? "Failed" : "Confirmed",
-      done: payment.status === "Confirmed",
-      failed: payment.status === "Failed",
-      pending: payment.status === "Pending",
-      time: payment.time,
-    },
-  ];
 
   return (
     <div className="fixed inset-0 z-[60]" role="dialog" aria-label="Payment details">
@@ -70,7 +93,7 @@ export default function PaymentDrawer() {
             <span className="flex items-center gap-2.5">
               <span
                 className="flex h-8 w-8 items-center justify-center rounded-full text-[12px] font-bold text-white"
-                style={{ backgroundColor: coinColors[payment.coin] }}
+                style={{ backgroundColor: coinColor(payment.coin) }}
               >
                 {payment.coin[0]}
               </span>
@@ -85,16 +108,13 @@ export default function PaymentDrawer() {
 
           <div className="mt-6">
             <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-d-muted/70">
-              Customer
+              Merchant
             </p>
-            <div className="flex items-center gap-3 rounded-lg border border-d-edge bg-d-raised px-4 py-3">
-              <span className="flex h-9 w-9 items-center justify-center rounded-full bg-violet text-[12px] font-semibold text-cream">
-                {payment.customer.split(" ").map((n) => n[0]).join("")}
-              </span>
-              <div className="min-w-0">
-                <p className="truncate text-[13.5px] font-medium text-d-ink">{payment.customer}</p>
-                <p className="truncate text-[12px] text-d-muted">{payment.email}</p>
-              </div>
+            <div className="rounded-lg border border-d-edge bg-d-raised px-4 py-3">
+              <p className="truncate text-[13.5px] font-medium text-d-ink">{payment.merchant}</p>
+              <p className="mt-1 font-mono text-[12px] text-d-muted">
+                {payment.payer ? `Paid from ${shortWallet(payment.payer)}` : "No payer yet"}
+              </p>
             </div>
           </div>
 
@@ -107,19 +127,19 @@ export default function PaymentDrawer() {
                 [
                   "Gross",
                   <span key="gross" className="font-mono">
-                    {`$${gross.toLocaleString("en-US")}`}
+                    {`$${gross.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                   </span>,
                 ],
                 [
-                  "AirPay fee (0.9%)",
+                  `AirPay fee (${formatFeePercent()})`,
                   <span key="fee" className="font-mono">
-                    {`-$${fee.toLocaleString("en-US")}`}
+                    {`-$${fee.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                   </span>,
                 ],
                 [
                   "Net payout",
                   <span key="net" className="font-mono font-semibold text-d-success">
-                    ${net.toLocaleString("en-US")}
+                    ${net.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </span>,
                 ],
               ]}
@@ -130,22 +150,43 @@ export default function PaymentDrawer() {
             <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-d-muted/70">
               Transaction
             </p>
-            <div className="flex items-center gap-2 rounded-lg border border-d-edge bg-d-raised px-4 py-3">
-              <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-d-ink">{tx}</span>
-              <CopyButton text={tx} compact ariaLabel="Copy transaction hash">
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                  <rect x="3.5" y="3.5" width="7" height="7" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
-                  <path d="M8.5 3.5V2.5a1 1 0 0 0-1-1H2.5a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1h1" stroke="currentColor" strokeWidth="1.2" />
-                </svg>
-              </CopyButton>
-            </div>
+            {payment.txHash ? (
+              <div className="flex items-center gap-2 rounded-lg border border-d-edge bg-d-raised px-4 py-3">
+                <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-d-ink">
+                  {payment.txHash}
+                </span>
+                {payment.explorerTx && (
+                  <a
+                    href={payment.explorerTx}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="shrink-0 text-[11.5px] font-medium text-d-accent transition-colors hover:text-d-ink"
+                  >
+                    Explorer
+                  </a>
+                )}
+                <CopyButton text={payment.txHash} compact ariaLabel="Copy transaction hash">
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                    <rect x="3.5" y="3.5" width="7" height="7" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
+                    <path d="M8.5 3.5V2.5a1 1 0 0 0-1-1H2.5a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1h1" stroke="currentColor" strokeWidth="1.2" />
+                  </svg>
+                </CopyButton>
+              </div>
+            ) : (
+              <p className="rounded-lg border border-dashed border-d-edge px-4 py-3 text-[12.5px] text-d-muted">
+                No transaction has been submitted for this payment yet.
+              </p>
+            )}
             <div className="mt-3">
               <KvList
                 items={[
                   ["Network", payment.chain],
-                  ["Confirmations", payment.status === "Confirmed" ? "12" : "—"],
-                  ["Received", payment.time],
-                  ["Fee paid", "$0.00 (gas sponsored)"],
+                  [
+                    "Confirmations",
+                    `${payment.confirmations} / ${payment.requiredConfirmations}`,
+                  ],
+                  ["Receiver", shortWallet(payment.receiver)],
+                  ["Created", fmtTime(payment.createdAt)],
                 ]}
               />
             </div>
@@ -161,9 +202,9 @@ export default function PaymentDrawer() {
                   <div className="flex flex-col items-center">
                     <span
                       className={`mt-1 h-3 w-3 shrink-0 rounded-full border-2 ${
-                        s.failed
+                        s.tone === "failed"
                           ? "border-d-failed bg-d-failed"
-                          : s.pending
+                          : s.tone === "pending"
                             ? "border-d-pending bg-transparent"
                             : "border-d-success bg-d-success"
                       }`}
@@ -172,7 +213,7 @@ export default function PaymentDrawer() {
                   </div>
                   <div className="pb-5">
                     <p className="text-[13px] font-medium text-d-ink">{s.label}</p>
-                    <p className="text-[11.5px] text-d-muted">{s.time}</p>
+                    <p className="text-[11.5px] text-d-muted">{fmtTime(s.time)}</p>
                   </div>
                 </div>
               ))}

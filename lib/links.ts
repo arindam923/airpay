@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "./db";
 import { paymentLinks, type PaymentLinkRow } from "./schema";
 import { testnetByKey } from "./chains";
+import type { Environment } from "./environment";
 import type { EnabledPairs } from "./onboarding";
 
 export interface PublicLink {
@@ -19,6 +20,7 @@ export interface PublicLink {
   coin: string;
   receiver: string;
   allowed: EnabledPairs;
+  environment: Environment;
   active: boolean;
   createdAt: number;
 }
@@ -38,6 +40,7 @@ export function toPublicLink(row: PaymentLinkRow): PublicLink {
     coin: row.token,
     receiver: row.receiver,
     allowed: row.allowed ?? {},
+    environment: row.environment,
     active: row.active,
     createdAt: row.created_at,
   };

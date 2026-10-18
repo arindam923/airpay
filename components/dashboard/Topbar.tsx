@@ -18,7 +18,7 @@ import {
 
 export default function Topbar({ onMenu }: { onMenu: () => void }) {
   const pathname = usePathname();
-  const { setPaletteOpen, openNewLink, openPayment } = useDashboard();
+  const { setPaletteOpen, openNewLink, openPayment, environment, productionLocked } = useDashboard();
   const title = pageTitleForPath(pathname);
 
   const { data } = useQuery({
@@ -120,9 +120,19 @@ export default function Topbar({ onMenu }: { onMenu: () => void }) {
       </button>
 
       <div className="ml-auto flex items-center gap-2.5">
-        <span className="hidden items-center gap-1.5 rounded-full border border-d-edge bg-d-panel px-3 py-1.5 text-[11px] font-medium text-d-success md:flex">
-          <span className="h-1.5 w-1.5 animate-pulse-dot rounded-full bg-d-success" />
-          Live
+        <span
+          className={`hidden items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11px] font-medium md:flex ${
+            environment === "production"
+              ? "border-d-edge bg-d-panel text-d-success"
+              : "border-amber-400/30 bg-amber-400/10 text-amber-400"
+          }`}
+        >
+          <span
+            className={`h-1.5 w-1.5 rounded-full ${
+              environment === "production" ? "animate-pulse-dot bg-d-success" : "bg-amber-400"
+            }`}
+          />
+          {environment === "production" ? "Live" : "Testnet"}
         </span>
 
         <div className="relative" ref={bellRef}>
@@ -215,7 +225,9 @@ export default function Topbar({ onMenu }: { onMenu: () => void }) {
 
         <button
           onClick={openNewLink}
-          className="hidden h-9 items-center gap-1.5 rounded-lg bg-d-accent px-4 text-[13px] font-medium text-cream transition-colors hover:bg-d-accent-deep sm:flex"
+          disabled={productionLocked}
+          title={productionLocked ? "Production isn't available yet — switch to Sandbox" : undefined}
+          className="hidden h-9 items-center gap-1.5 rounded-lg bg-d-accent px-4 text-[13px] font-medium text-cream transition-colors hover:bg-d-accent-deep disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-d-accent sm:flex"
         >
           New payment link
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none">

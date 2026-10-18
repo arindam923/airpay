@@ -11,26 +11,30 @@ import {
 } from "./config";
 
 const chipBase =
-  "inline-flex items-center gap-1.5 rounded-full border-2 px-3.5 py-1.5 text-[13px] font-medium transition-all";
+  "inline-flex items-center gap-1.5 rounded-full border-[length:var(--co-bw)] px-3.5 py-1.5 text-[13px] font-medium transition-all";
 
 export function NetworkPicker({
   value,
   onChange,
   chains,
+  showTestnetBadge = true,
 }: {
   value: string;
   onChange: (chain: string) => void;
   /** When provided, only these chain display names are offered. */
   chains?: string[];
+  showTestnetBadge?: boolean;
 }) {
   const options = chains ? CHAINS.filter((c) => chains.includes(c.name)) : CHAINS;
   return (
     <div>
       <div className="mb-2 flex items-center justify-between">
         <p className="text-[13px] font-medium text-ink-soft">Network</p>
-        <span className="rounded-full border border-ink/25 px-2 py-0.5 text-[10.5px] font-semibold uppercase tracking-wide text-ink-soft">
-          Testnet
-        </span>
+        {showTestnetBadge && (
+          <span className="rounded-full border border-ink/25 px-2 py-0.5 text-[10.5px] font-semibold uppercase tracking-wide text-ink-soft">
+            Testnet
+          </span>
+        )}
       </div>
       <div className="flex flex-wrap gap-2">
         {options.map((c) => {
@@ -43,7 +47,7 @@ export function NetworkPicker({
               aria-pressed={selected}
               className={`${chipBase} ${
                 selected
-                  ? "border-ink bg-sun shadow-[3px_3px_0_var(--color-ink)]"
+                  ? "border-ink bg-sun text-[#191410] shadow-[var(--co-shadow-sm)]"
                   : "border-ink/20 bg-cream hover:border-ink/50"
               }`}
             >
@@ -91,7 +95,7 @@ export function CoinPicker({
               aria-pressed={selected}
               className={`${chipBase} ${
                 selected
-                  ? "border-ink bg-cream shadow-[3px_3px_0_var(--color-ink)]"
+                  ? "border-ink bg-cream shadow-[var(--co-shadow-sm)]"
                   : "border-ink/20 bg-cream hover:border-ink/50"
               }`}
             >
@@ -125,7 +129,7 @@ export function AmountBlock({
 }) {
   if (cfg.mode === "fixed") {
     return (
-      <div className="rounded-2xl border-2 border-ink bg-paper px-5 py-4">
+      <div className="rounded-2xl border-[length:var(--co-bw)] border-ink bg-paper px-5 py-4">
         <p className="text-[12.5px] text-ink-soft">Amount due</p>
         <div className="mt-1.5 flex flex-wrap items-end justify-between gap-x-3 gap-y-1">
           <p className="text-[32px] font-semibold leading-none tracking-[-0.02em]">
@@ -144,7 +148,7 @@ export function AmountBlock({
   const chips = amountChips(cfg);
 
   return (
-    <div className="rounded-2xl border-2 border-ink bg-paper px-5 py-4">
+    <div className="rounded-2xl border-[length:var(--co-bw)] border-ink bg-paper px-5 py-4">
       <label htmlFor="pay-amount" className="text-[12.5px] text-ink-soft">
         Amount to pay
       </label>
@@ -170,9 +174,9 @@ export function AmountBlock({
             key={c}
             type="button"
             onClick={() => onTextChange(String(c))}
-            className={`inline-flex rounded-full border-2 px-3 py-1 text-[12.5px] font-semibold transition-all ${
+            className={`inline-flex rounded-full border-[length:var(--co-bw)] px-3 py-1 text-[12.5px] font-semibold transition-all ${
               parsed === c
-                ? "border-ink bg-sun shadow-[2px_2px_0_var(--color-ink)]"
+                ? "border-ink bg-sun text-[#191410] shadow-[var(--co-shadow-sm)]"
                 : "border-ink/25 bg-cream hover:border-ink/60"
             }`}
           >

@@ -1,6 +1,8 @@
+import { after } from "next/server";
 import { RPCHandler } from "@orpc/server/fetch";
 import { createORPCContext } from "@/lib/orpc/context";
 import { appRouter } from "@/lib/orpc/router";
+import { flushWebhooks } from "@/lib/webhooks";
 
 const handler = new RPCHandler(appRouter);
 
@@ -10,7 +12,16 @@ async function handle(request: Request) {
     prefix: "/api/rpc",
     context,
   });
-  if (result.matched) return result.response;
+  if (result.matched) {
+    // Mutations may have queued webhook deliveries — drain them once the
+    // response is sent. Cron/worker remain the safety net.
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      after(() => {
+        void flushWebhooks();
+      });
+    }
+    return result.response;
+  }
   return new Response("Not found", { status: 404 });
 }
 

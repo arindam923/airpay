@@ -194,8 +194,17 @@ export default function Overview() {
                 filename="payments.csv"
                 title="CSV"
                 rows={[
-                  ["Payment", "Customer", "Email", "Amount", "Coin", "Chain", "Status", "Time"],
-                  ...headerRows.map((p) => [p.id, p.customer, p.email, p.amount, p.coin, p.chain, p.status, p.time]),
+                  ["Payment", "Merchant", "Payer", "Amount", "Coin", "Chain", "Status", "Time"],
+                  ...headerRows.map((p) => [
+                    p.id,
+                    p.merchant,
+                    p.payer ?? "",
+                    p.amount,
+                    p.coin,
+                    p.chain,
+                    p.status,
+                    p.time,
+                  ]),
                 ]}
               />
             </>

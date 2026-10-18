@@ -7,7 +7,8 @@ import DataTable, { type Column } from "./ui/DataTable";
 import SearchInput from "./ui/SearchInput";
 import Segmented from "./ui/Segmented";
 import StatusChip from "./ui/StatusChip";
-import { coinColors, type Payment, type PaymentStatus } from "./data";
+import { coinColor, type Payment, type PaymentStatus } from "./data";
+import { shortWallet } from "./utils";
 
 type Filter = "All" | PaymentStatus;
 
@@ -21,13 +22,15 @@ const columns: Column<Payment>[] = [
     ),
   },
   {
-    header: "Customer",
+    header: "Merchant",
     cell: (p) => (
       <div className="flex items-center gap-2.5">
-        <Avatar name={p.customer} size={28} />
-        <div>
-          <p className="text-[13px] leading-tight text-d-ink">{p.customer}</p>
-          <p className="text-[11px] leading-tight text-d-muted/70">{p.email}</p>
+        <Avatar name={p.merchant} size={28} />
+        <div className="min-w-0">
+          <p className="truncate text-[13px] leading-tight text-d-ink">{p.merchant}</p>
+          <p className="truncate text-[11px] leading-tight text-d-muted/70">
+            {p.payer ? shortWallet(p.payer) : "Awaiting payment"}
+          </p>
         </div>
       </div>
     ),
@@ -38,7 +41,7 @@ const columns: Column<Payment>[] = [
       <div className="flex items-center gap-2">
         <span
           className="flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold text-white"
-          style={{ backgroundColor: coinColors[p.coin] }}
+          style={{ backgroundColor: coinColor(p.coin) }}
         >
           {p.coin[0]}
         </span>
@@ -71,11 +74,13 @@ export default function PaymentsTable({
   onSearch,
   onRowClick,
   items,
+  loading = false,
 }: {
   query?: string;
   onSearch?: (q: string) => void;
   onRowClick?: (p: Payment) => void;
   items: Payment[];
+  loading?: boolean;
 }) {
   const [filter, setFilter] = useState<Filter>("All");
 
@@ -86,8 +91,8 @@ export default function PaymentsTable({
     const matchesQuery =
       !q ||
       p.id.toLowerCase().includes(q) ||
-      p.customer.toLowerCase().includes(q) ||
-      p.email.toLowerCase().includes(q) ||
+      p.merchant.toLowerCase().includes(q) ||
+      (p.payer ?? "").toLowerCase().includes(q) ||
       p.coin.toLowerCase().includes(q) ||
       p.chain.toLowerCase().includes(q);
     return matchesFilter && matchesQuery;
@@ -97,7 +102,7 @@ export default function PaymentsTable({
     <Card>
       <CardHeader
         title="Recent payments"
-        description={`${rows.length} of ${source.length} payments`}
+        description={loading ? "Loading…" : `${rows.length} of ${source.length} payments`}
         actions={
           <>
             {onSearch && (
@@ -116,8 +121,13 @@ export default function PaymentsTable({
         items={rows}
         columns={columns}
         minWidth="min-w-[720px]"
+        loading={loading}
         onRowClick={onRowClick}
-        emptyState={<>No payments match {query ? `“${query}”` : "this filter"}.</>}
+        emptyState={
+          source.length === 0 && !q
+            ? "No payments yet. They'll appear here once a link or invoice is paid."
+            : <>No payments match {query ? `“${query}”` : "this filter"}.</>
+        }
       />
     </Card>
   );

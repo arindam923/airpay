@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import PageHeader from "../PageHeader";
 import Card, { CardHeader } from "../ui/Card";
 import CopyButton from "../ui/CopyButton";
+import Skeleton from "../ui/Skeleton";
 import { useOnboarding } from "../onboarding/useOnboarding";
 import { orpcClient } from "@/lib/orpc/client";
 
@@ -173,7 +174,13 @@ export default function ApiKeysPage() {
         />
         <div className="flex flex-col">
           {isLoading ? (
-            <div className="px-5 py-6 text-[13px] text-d-muted">Loading keys…</div>
+            Array.from({ length: 2 }).map((_, i) => (
+              <div key={i} className="border-b border-d-edge-soft/60 px-5 py-4 last:border-0">
+                <Skeleton className="h-3.5 w-40" />
+                <Skeleton className="mt-3 h-3 w-52" />
+                <Skeleton className="mt-3 h-3 w-64" />
+              </div>
+            ))
           ) : keys.length === 0 ? (
             <div className="px-5 py-8 text-center">
               <p className="text-[13px] font-medium text-d-ink">No API keys yet</p>

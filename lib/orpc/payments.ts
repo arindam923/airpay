@@ -5,7 +5,7 @@ import { createIntent, getIntent, attachTx, toPublic, IntentError } from "@/lib/
 import { selfHeal } from "@/lib/selfheal";
 import { getDb } from "@/lib/db";
 import { paymentIntents } from "@/lib/schema";
-import { base, orgScoped, onboarded } from "./base";
+import { base, orgScoped, onboarded, assertEnvironmentEnabled } from "./base";
 import { createIntentSchema, getIntentSchema, submitTxSchema } from "@/lib/schemas/intents";
 import type { IntentStatus } from "@/lib/api-types";
 
@@ -13,6 +13,7 @@ export const paymentsRouter = {
   create: onboarded
     .input(createIntentSchema)
     .handler(async ({ input, context }) => {
+      assertEnvironmentEnabled(context.environment);
       try {
         const intent = await createIntent({
           organizationId: context.organizationId!,
@@ -26,6 +27,7 @@ export const paymentsRouter = {
           max: input.max ?? null,
           chain: input.chain,
           coin: input.coin,
+          environment: context.environment,
         });
         return toPublic(intent);
       } catch (err) {
@@ -70,6 +72,7 @@ export const paymentsRouter = {
             .where(
               and(
                 eq(paymentIntents.organizationId, context.organizationId!),
+                eq(paymentIntents.environment, context.environment),
                 inArray(paymentIntents.status, input.statuses as IntentStatus[]),
               ),
             )
@@ -77,7 +80,12 @@ export const paymentsRouter = {
         : await db
             .select()
             .from(paymentIntents)
-            .where(eq(paymentIntents.organizationId, context.organizationId!))
+            .where(
+              and(
+                eq(paymentIntents.organizationId, context.organizationId!),
+                eq(paymentIntents.environment, context.environment),
+              ),
+            )
             .orderBy(desc(paymentIntents.created_at));
       return rows.map((r) => toPublic(r as never));
     }),

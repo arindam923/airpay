@@ -4,6 +4,7 @@ import { webhooksRouter } from "./webhooks";
 import { settingsRouter } from "./settings";
 import { onboardingRouter } from "./onboarding";
 import { linksRouter } from "./links";
+import { invoicesRouter } from "./invoices";
 
 export const appRouter = {
   payments: paymentsRouter,
@@ -12,6 +13,7 @@ export const appRouter = {
   settings: settingsRouter,
   onboarding: onboardingRouter,
   links: linksRouter,
+  invoices: invoicesRouter,
 };
 
 export type AppRouter = typeof appRouter;

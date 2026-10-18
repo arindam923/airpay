@@ -3,8 +3,10 @@ import { and, asc, eq, inArray, notInArray } from "drizzle-orm";
 import { usdToUnits } from "./amounts";
 import type { IntentStatus, PublicIntent } from "./api-types";
 import { testnetByKey, testnetByName } from "./chains";
+import { DEFAULT_ENVIRONMENT, isProductionReady, type Environment } from "./environment";
 import { getDb, type PaymentIntent } from "./db";
 import { paymentIntents } from "./schema";
+import { emitEvent } from "./webhooks";
 
 export type { IntentStatus, PublicIntent };
 
@@ -25,8 +27,12 @@ export interface CreateIntentInput {
   max: number | null;
   chain: string;
   coin: string;
+  /** Which environment the intent belongs to; defaults to sandbox. */
+  environment?: Environment;
   /** Overrides the global RECEIVER_ADDRESS (e.g. the org's payout wallet). */
   receiver?: string | null;
+  /** Links the intent back to an invoice so confirmation can mark it paid. */
+  invoiceId?: string | null;
 }
 
 export class IntentError extends Error {
@@ -47,6 +53,13 @@ export function receiverAddress(): string {
 }
 
 export async function createIntent(input: CreateIntentInput): Promise<PaymentIntent> {
+  const environment = input.environment ?? DEFAULT_ENVIRONMENT;
+  if (environment === "production" && !isProductionReady()) {
+    throw new IntentError(
+      "Production isn't available yet — mainnet is coming soon. Use a Sandbox link instead.",
+      409
+    );
+  }
   const info = testnetByName(input.chain);
   if (!info) {
     throw new IntentError(`Unsupported network: ${input.chain}. Only EVM testnets are live.`);
@@ -82,8 +95,10 @@ export async function createIntent(input: CreateIntentInput): Promise<PaymentInt
     amount_usd: input.amount,
     chain_key: info.key,
     token: input.coin,
+    environment,
     expected_units: expectedUnits.toString(),
     receiver: receiver ?? receiverAddress(),
+    invoice_id: input.invoiceId ?? null,
     payer: null,
     tx_hash: null,
     status: "awaiting_payment",
@@ -164,7 +179,15 @@ export async function attachTx({ intentId, txHash, payer }: SubmitInput): Promis
     if (!fresh) throw new IntentError("Payment intent not found.", 404);
     throw new IntentError(`This payment is already ${fresh.status}.`, 409);
   }
-  return (await getIntent(intentId)) ?? intent;
+  const fresh = (await getIntent(intentId)) ?? intent;
+  await emitEvent({
+    organizationId: fresh.organizationId,
+    environment: fresh.environment,
+    type: "payment.submitted",
+    data: { intent: toPublic(fresh) },
+    dedupeKey: `payment.submitted:${fresh.id}`,
+  });
+  return fresh;
 }
 
 export async function markIntent(
@@ -207,6 +230,16 @@ export async function expireIntent(
   reason = "Payment expired before it was verified.",
 ): Promise<void> {
   await markIntent(id, { status: "expired", error: reason });
+  const intent = await getIntent(id);
+  if (intent) {
+    await emitEvent({
+      organizationId: intent.organizationId,
+      environment: intent.environment,
+      type: "payment.expired",
+      data: { intent: toPublic(intent) },
+      dedupeKey: `payment.expired:${id}`,
+    });
+  }
 }
 
 export function toPublic(intent: PaymentIntent): PublicIntent {
@@ -229,6 +262,8 @@ export function toPublic(intent: PaymentIntent): PublicIntent {
     error: intent.error,
     merchant: intent.merchant,
     title: intent.title,
+    environment: intent.environment,
+    invoiceId: intent.invoice_id,
     createdAt: intent.created_at,
     confirmedAt: intent.confirmed_at,
   };

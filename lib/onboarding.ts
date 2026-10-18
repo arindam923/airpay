@@ -43,3 +43,21 @@ export function defaultPair(
 export function isValidTestnetKey(key: string): key is TestnetKey {
   return key in TESTNETS;
 }
+
+/**
+ * Destination address for a new payment link / invoice on `chainKey`.
+ * 'all' routes every network to `payoutWallet`; 'per_network' uses the
+ * per-chain override, falling back to `payoutWallet` if one is missing.
+ * Rows snapshot their receiver, so later settings edits never rewrite history.
+ */
+export function resolveReceiver(
+  settings: WorkspaceSettingsRow | null | undefined,
+  chainKey: string,
+): string {
+  if (!settings) return "";
+  if (settings.payoutMode === "per_network") {
+    const addr = settings.payoutAddresses?.[chainKey]?.trim();
+    if (addr) return addr;
+  }
+  return settings.payoutWallet;
+}

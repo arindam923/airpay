@@ -3,11 +3,12 @@ import { ORPCError } from "@orpc/server";
 import { and, desc, eq } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import { paymentLinks, workspaceSettings } from "@/lib/schema";
-import { enabledPairs, isValidTestnetKey } from "@/lib/onboarding";
+import { enabledPairs, isValidTestnetKey, resolveReceiver } from "@/lib/onboarding";
 import { coinAvailableOnTestnet } from "@/lib/tokens";
 import { newSlug, toPublicLink } from "@/lib/links";
-import { orgScoped, onboarded } from "./base";
+import { orgScoped, onboarded, assertEnvironmentEnabled } from "./base";
 import { createLinkSchema, revokeLinkSchema } from "@/lib/schemas/links";
+import { emitEvent } from "@/lib/webhooks";
 
 export const linksRouter = {
   list: orgScoped.handler(async ({ context }) => {
@@ -15,7 +16,12 @@ export const linksRouter = {
     const rows = await db
       .select()
       .from(paymentLinks)
-      .where(eq(paymentLinks.organizationId, context.organizationId!))
+      .where(
+        and(
+          eq(paymentLinks.organizationId, context.organizationId!),
+          eq(paymentLinks.environment, context.environment),
+        ),
+      )
       .orderBy(desc(paymentLinks.created_at));
     return rows.map(toPublicLink);
   }),
@@ -23,6 +29,7 @@ export const linksRouter = {
   create: onboarded
     .input(createLinkSchema)
     .handler(async ({ input, context }) => {
+      assertEnvironmentEnabled(context.environment);
       const db = await getDb();
       const rows = await db
         .select()
@@ -65,13 +72,22 @@ export const linksRouter = {
               max: input.max ?? null,
               chain_key: input.chain,
               token: input.coin,
-              receiver: settings.payoutWallet,
+              receiver: resolveReceiver(settings, input.chain),
               allowed: pairs,
+              environment: context.environment,
               active: true,
               created_at: now,
             })
             .returning();
-          return toPublicLink(inserted[0]);
+          const link = toPublicLink(inserted[0]);
+          await emitEvent({
+            organizationId: context.organizationId!,
+            environment: context.environment,
+            type: "link.created",
+            data: { link },
+            dedupeKey: `link.created:${link.id}`,
+          });
+          return link;
         } catch (err) {
           // Unique slug violation — retry with a fresh slug.
           if (attempt < 4) continue;
@@ -90,15 +106,27 @@ export const linksRouter = {
     .input(revokeLinkSchema)
     .handler(async ({ input, context }) => {
       const db = await getDb();
-      await db
+      const updated = await db
         .update(paymentLinks)
         .set({ active: false })
         .where(
           and(
             eq(paymentLinks.id, input.id),
             eq(paymentLinks.organizationId, context.organizationId!),
+            eq(paymentLinks.environment, context.environment),
           ),
-        );
+        )
+        .returning();
+      const row = updated[0];
+      if (row) {
+        await emitEvent({
+          organizationId: row.organizationId,
+          environment: row.environment,
+          type: "link.revoked",
+          data: { link: toPublicLink(row) },
+          dedupeKey: `link.revoked:${row.id}`,
+        });
+      }
       return { ok: true };
     }),
 };

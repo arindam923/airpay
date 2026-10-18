@@ -1,9 +1,11 @@
 import { and, asc, eq, inArray, isNull, lt, or } from "drizzle-orm";
 import { getDb, type PaymentIntent } from "./db";
-import { attachTx, expireIntent, listIntentsByStatus, markIntent } from "./intents";
+import { attachTx, expireIntent, getIntent, listIntentsByStatus, markIntent, toPublic } from "./intents";
 import { detectIncomingTx, verifyIntent, type VerifyOutcome } from "./verify";
 import { getKv, pruneKv, setKv } from "./kv";
-import { paymentIntents } from "./schema";
+import { paymentIntents, webhookEvents } from "./schema";
+import { markInvoicePaid } from "./invoices";
+import { deliverPending, emitEvent } from "./webhooks";
 
 /** Retry cadence for a submitted tx that is not mined yet. */
 export const VERIFY_PENDING_MS = 15_000;
@@ -60,6 +62,15 @@ export async function verifyAndMark(intent: PaymentIntent): Promise<VerifyOutcom
       next_verify_at: null,
     });
     console.log(`[verify] intent ${intent.id} CONFIRMED in block ${outcome.blockNumber}`);
+    const fresh = (await getIntent(intent.id)) ?? intent;
+    await emitEvent({
+      organizationId: fresh.organizationId,
+      environment: fresh.environment,
+      type: "payment.confirmed",
+      data: { intent: toPublic(fresh) },
+      dedupeKey: `payment.confirmed:${fresh.id}`,
+    });
+    if (intent.invoice_id) await markInvoicePaid(intent.invoice_id);
   } else {
     await markIntent(intent.id, {
       status: "failed",
@@ -68,6 +79,14 @@ export async function verifyAndMark(intent: PaymentIntent): Promise<VerifyOutcom
       next_verify_at: null,
     });
     console.warn(`[verify] intent ${intent.id} failed: ${outcome.error}`);
+    const fresh = (await getIntent(intent.id)) ?? intent;
+    await emitEvent({
+      organizationId: fresh.organizationId,
+      environment: fresh.environment,
+      type: "payment.failed",
+      data: { intent: toPublic(fresh) },
+      dedupeKey: `payment.failed:${fresh.id}`,
+    });
   }
   return outcome;
 }
@@ -76,8 +95,10 @@ export interface MaintenanceStats {
   expired: number;
   detected: number;
   verified: number;
+  delivered: number;
   prunedIntents: number;
   prunedKv: number;
+  prunedWebhookEvents: number;
 }
 
 export async function sweepExpired(): Promise<number> {
@@ -164,8 +185,11 @@ export async function runDetectSweep(limit: number): Promise<number> {
   return detected;
 }
 
-/** Delete terminal intents older than `olderThanMs` and stale kv rows. */
-export async function prune(olderThanMs: number, kvOlderThanMs: number): Promise<{ intents: number; kv: number }> {
+/** Delete terminal intents older than `olderThanMs` and stale kv/webhook rows. */
+export async function prune(
+  olderThanMs: number,
+  kvOlderThanMs: number,
+): Promise<{ intents: number; kv: number; webhookEvents: number }> {
   const db = await getDb();
   const res = await db
     .delete(paymentIntents)
@@ -176,26 +200,35 @@ export async function prune(olderThanMs: number, kvOlderThanMs: number): Promise
       ),
     )
     .returning({ id: paymentIntents.id });
+  // Deliveries cascade off their event, so pruning events clears both.
+  const webhookRows = await db
+    .delete(webhookEvents)
+    .where(lt(webhookEvents.created_at, Date.now() - olderThanMs))
+    .returning({ id: webhookEvents.id });
   const kvRows = await pruneKv(kvOlderThanMs);
-  return { intents: res.length, kv: kvRows };
+  return { intents: res.length, kv: kvRows, webhookEvents: webhookRows.length };
 }
 
 export async function runMaintenance(opts: {
   maxDetect?: number;
   maxVerify?: number;
+  maxDeliveries?: number;
   pruneTerminalOlderThanMs?: number;
 }): Promise<MaintenanceStats> {
   const expired = await sweepExpired();
   const detected = await runDetectSweep(opts.maxDetect ?? 20);
   const verified = await runVerifySweep(opts.maxVerify ?? 20);
+  const delivered = await deliverPending(opts.maxDeliveries ?? 25);
   const pruned = opts.pruneTerminalOlderThanMs
     ? await prune(opts.pruneTerminalOlderThanMs, 24 * 60 * 60 * 1000)
-    : { intents: 0, kv: 0 };
+    : { intents: 0, kv: 0, webhookEvents: 0 };
   return {
     expired,
     detected,
     verified,
+    delivered,
     prunedIntents: pruned.intents,
     prunedKv: pruned.kv,
+    prunedWebhookEvents: pruned.webhookEvents,
   };
 }

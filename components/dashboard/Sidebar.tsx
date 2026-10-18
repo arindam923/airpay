@@ -3,9 +3,13 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { NAV_GROUPS } from "./nav";
+import { setEnvironment, useEnvironment } from "@/lib/env-store";
+import { PRODUCTION_READY } from "@/lib/environment";
 
 export default function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const pathname = usePathname();
+  const env = useEnvironment();
+  const productionLocked = env === "production" && !PRODUCTION_READY;
 
   return (
     <>
@@ -30,9 +34,51 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
               AirPay
             </span>
           </Link>
-          <span className="ml-auto rounded-md border border-d-edge bg-d-raised px-1.5 py-0.5 font-mono text-[10px] text-d-muted">
-            prod
-          </span>
+        </div>
+
+        <div className="px-3 pb-2 pt-3">
+          <div className="relative grid grid-cols-2 gap-0 rounded-lg bg-d-raised p-1">
+            <span
+              aria-hidden
+              className={`absolute inset-y-1 left-1 w-[calc(50%-4px)] rounded-md border border-d-edge bg-d-panel shadow-[0_1px_2px_rgba(0,0,0,0.3)] transition-transform duration-200 ease-out ${
+                env === "production" ? "translate-x-full" : "translate-x-0"
+              }`}
+            />
+            {(["sandbox", "production"] as const).map((option) => (
+              <button
+                key={option}
+                type="button"
+                onClick={() => setEnvironment(option)}
+                aria-pressed={env === option}
+                className={`relative z-10 flex items-center justify-center gap-1.5 rounded-md py-1.5 text-[11px] font-medium capitalize transition-colors ${
+                  env === option ? "text-d-ink" : "text-d-muted hover:text-d-ink/80"
+                }`}
+              >
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${
+                    option === "production" ? "bg-d-success" : "bg-amber-400"
+                  } ${env === option ? "" : "opacity-50"}`}
+                />
+                {option}
+                {option === "production" && !PRODUCTION_READY && (
+                  <svg width="9" height="9" viewBox="0 0 10 10" fill="none" className="opacity-70">
+                    <path
+                      d="M2.5 4.5V3.5a2.5 2.5 0 015 0v1M2 4.5h6v4H2z"
+                      stroke="currentColor"
+                      strokeWidth="1"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                )}
+              </button>
+            ))}
+          </div>
+          {productionLocked && (
+            <p className="mt-2 px-1 text-[10.5px] leading-tight text-amber-400/90">
+              Mainnet isn&apos;t enabled yet. Sandbox runs on testnets.
+            </p>
+          )}
         </div>
 
         <nav className="flex-1 overflow-y-auto px-3 py-4">
@@ -78,20 +124,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
         </nav>
 
         <div className="border-t border-d-edge-soft p-3">
-          <div className="rounded-xl border border-d-edge bg-d-raised p-3.5">
-            <div className="flex items-center justify-between">
-              <p className="text-[12px] font-medium text-d-ink">Pro plan</p>
-              <span className="rounded-full bg-d-accent/15 px-2 py-0.5 text-[10px] font-semibold text-d-accent">
-                0.9% fee
-              </span>
-            </div>
-            <div className="mt-2.5 h-1 overflow-hidden rounded-full bg-d-edge">
-              <div className="h-full w-[68%] rounded-full bg-d-accent" />
-            </div>
-            <p className="mt-2 text-[11px] text-d-muted">$284k of $500k monthly volume</p>
-          </div>
-
-          <button className="mt-2 flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 transition-colors hover:bg-d-raised">
+          <button className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 transition-colors hover:bg-d-raised">
             <span className="flex h-7 w-7 items-center justify-center rounded-full bg-violet text-[11px] font-semibold text-cream">
               AR
             </span>

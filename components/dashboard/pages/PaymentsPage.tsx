@@ -15,7 +15,7 @@ export default function PaymentsPage() {
   const { openPayment, openNewLink } = useDashboard();
   const [query, setQuery] = useState("");
 
-  const { data } = useQuery({
+  const { data, isLoading } = useQuery({
     queryKey: ["payments"],
     queryFn: async () => (await orpcClient.payments.listByOrg({})) as PublicIntent[],
   });
@@ -33,8 +33,17 @@ export default function PaymentsPage() {
               filename="payments.csv"
               title="CSV"
               rows={[
-                ["Payment", "Customer", "Email", "Amount", "Coin", "Chain", "Status", "Time"],
-                ...payments.map((p) => [p.id, p.customer, p.email, p.amount, p.coin, p.chain, p.status, p.time]),
+                ["Payment", "Merchant", "Payer", "Amount", "Coin", "Chain", "Status", "Time"],
+                ...payments.map((p) => [
+                  p.id,
+                  p.merchant,
+                  p.payer ?? "",
+                  p.amount,
+                  p.coin,
+                  p.chain,
+                  p.status,
+                  p.time,
+                ]),
               ]}
             />
             <button
@@ -49,7 +58,13 @@ export default function PaymentsPage() {
           </>
         }
       />
-      <PaymentsTable query={query} onSearch={setQuery} onRowClick={openPayment as (p: Payment) => void} items={payments} />
+      <PaymentsTable
+        query={query}
+        onSearch={setQuery}
+        onRowClick={openPayment as (p: Payment) => void}
+        items={payments}
+        loading={isLoading}
+      />
     </>
   );
 }

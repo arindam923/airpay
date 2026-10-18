@@ -12,11 +12,11 @@ function log(level: "info" | "warn" | "error", msg: string, extra?: unknown): vo
 }
 
 async function tick(): Promise<void> {
-  const stats = await runMaintenance({ maxDetect: 25, maxVerify: 50 });
-  if (stats.expired || stats.detected || stats.verified) {
+  const stats = await runMaintenance({ maxDetect: 25, maxVerify: 50, maxDeliveries: 50 });
+  if (stats.expired || stats.detected || stats.verified || stats.delivered) {
     log(
       "info",
-      `expired=${stats.expired} detected=${stats.detected} verified=${stats.verified}`,
+      `expired=${stats.expired} detected=${stats.detected} verified=${stats.verified} delivered=${stats.delivered}`,
     );
   }
 }

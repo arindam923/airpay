@@ -2,8 +2,12 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useDashboard } from "./DashboardContext";
-import { deriveCustomers, payments } from "./data";
+import { deriveCustomers } from "./customers";
+import { toPayment } from "./utils";
+import { orpcClient } from "@/lib/orpc/client";
+import type { PublicIntent, PublicInvoiceDetail } from "@/lib/api-types";
 import { NAV_GROUPS } from "./nav";
 
 interface PageItem {
@@ -68,29 +72,55 @@ function PaletteBody() {
     return () => clearTimeout(t);
   }, []);
 
-  const customers = useMemo(() => deriveCustomers(payments), []);
+  const { data: intentsData } = useQuery({
+    queryKey: ["payments"],
+    queryFn: async () => (await orpcClient.payments.listByOrg({})) as PublicIntent[],
+  });
+  const { data: invoicesData } = useQuery({
+    queryKey: ["invoices"],
+    queryFn: async () => (await orpcClient.invoices.list()) as PublicInvoiceDetail[],
+  });
+
+  const intents = useMemo(() => intentsData ?? [], [intentsData]);
+  const customers = useMemo(
+    () => deriveCustomers(invoicesData ?? [], intents),
+    [invoicesData, intents],
+  );
 
   const items = useMemo<Item[]>(() => {
     const query = q.trim().toLowerCase();
     const match = (s: string) => !query || s.toLowerCase().includes(query);
     const pageItems = pages.filter((p) => match(p.label));
-    const payItems: PaymentItem[] = payments
+    const payItems: PaymentItem[] = intents
       .filter(
         (p) =>
           match(p.id) ||
-          match(p.customer) ||
-          match(p.email) ||
-          match(p.coin) ||
-          match(p.chain)
+          match(p.merchant) ||
+          match(p.payer ?? "") ||
+          match(p.token) ||
+          match(p.chainName)
       )
       .slice(0, 6)
-      .map((p) => ({ type: "payment", label: p.id, sub: `${p.customer} · ${p.amount}`, group: "Payments" }));
+      .map((p) => ({
+        type: "payment",
+        label: p.id,
+        sub: `${p.merchant} · $${p.amountUsd.toFixed(2)}`,
+        group: "Payments",
+      }));
     const custItems: CustomerItem[] = customers
-      .filter((c) => match(c.name) || match(c.email))
+      .filter((c) => match(c.name) || match(c.email ?? "") || match(c.wallet ?? ""))
       .slice(0, 5)
-      .map((c) => ({ type: "customer", label: c.name, sub: c.email, group: "Customers" }));
+      .map((c) => ({
+        type: "customer",
+        label: c.name,
+        sub:
+          c.email ??
+          c.wallet ??
+          `${c.invoices.length} invoice${c.invoices.length === 1 ? "" : "s"}`,
+        group: "Customers",
+      }));
     return [...pageItems, ...payItems, ...custItems];
-  }, [q, customers]);
+  }, [q, intents, customers]);
 
   const activeIdx = Math.min(idx, Math.max(items.length - 1, 0));
 
@@ -106,8 +136,8 @@ function PaletteBody() {
       setCustomerQuery(item.label);
       router.push("/dashboard/customers");
     } else {
-      const p = payments.find((x) => x.id === item.label);
-      if (p) openPayment(p);
+      const p = intents.find((x) => x.id === item.label);
+      if (p) openPayment(toPayment(p));
     }
   };
 

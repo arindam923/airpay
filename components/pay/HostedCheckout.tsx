@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { QRCodeSVG } from "qrcode.react";
 import { parseAbi } from "viem";
@@ -25,12 +25,20 @@ import {
   type CheckoutConfig,
 } from "./config";
 import { testnetByName, testnetByKey } from "@/lib/chains";
+import {
+  DEFAULT_APPEARANCE,
+  appearanceToCssVars,
+  logoShapeClass,
+  safeBackgroundImage,
+  type CheckoutAppearance,
+} from "@/lib/checkout-appearance";
 import type { PublicLink } from "@/lib/links";
 import { usdToUnits } from "@/lib/amounts";
 import { friendlyTxError } from "@/lib/errors";
 import { preflightPayment } from "@/lib/preflight";
-import type { PublicIntent } from "@/lib/api-types";
+import type { PublicIntent, PublicInvoiceDetail } from "@/lib/api-types";
 import { copyText, shortWallet } from "@/components/dashboard/utils";
+import { orpcClient } from "@/lib/orpc/client";
 
 const ERC20_ABI = parseAbi([
   "function transfer(address to, uint256 amount) returns (bool)",
@@ -74,17 +82,37 @@ function formatTime(ms: number): string {
   });
 }
 
-function Brand() {
+function Brand({
+  showBranding,
+  brandName,
+  logoUrl,
+}: {
+  showBranding: boolean;
+  brandName: string;
+  logoUrl: string;
+}) {
   return (
-    <header className="mx-auto flex w-full max-w-[460px] items-center justify-between px-5 pt-7">
-      <Link href="/" className="flex items-center gap-2">
-        <span className="flex h-7 w-7 items-center justify-center rounded-md border-2 border-ink bg-violet font-sans text-[13px] font-semibold text-cream shadow-[1.5px_1.5px_0_var(--color-ink)]">
-          A
+    <header className="mx-auto flex w-full max-w-[var(--co-width)] items-center justify-between px-5 pt-7">
+      {showBranding ? (
+        <Link href="/" className="flex items-center gap-2">
+          <span className="flex h-7 w-7 items-center justify-center rounded-md border-[length:var(--co-bw)] border-ink bg-violet font-sans text-[13px] font-semibold text-[var(--co-accent-text)] shadow-[var(--co-shadow-sm)]">
+            A
+          </span>
+          <span className="font-sans text-[15px] font-semibold tracking-[-0.01em]">
+            AirPay
+          </span>
+        </Link>
+      ) : (
+        <span className="flex items-center gap-2">
+          {logoUrl && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={logoUrl} alt="" className="h-7 w-7 rounded-md object-cover" />
+          )}
+          <span className="font-sans text-[15px] font-semibold tracking-[-0.01em]">
+            {brandName || "Checkout"}
+          </span>
         </span>
-        <span className="font-sans text-[15px] font-semibold tracking-[-0.01em]">
-          AirPay
-        </span>
-      </Link>
+      )}
       <span className="flex items-center gap-1.5 text-[12px] font-medium text-ink-soft">
         <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
           <rect x="2" y="5" width="8" height="5.5" rx="1.2" stroke="currentColor" strokeWidth="1.4" />
@@ -96,10 +124,61 @@ function Brand() {
   );
 }
 
-function Skeleton() {
+function InvoiceBreakdown({ invoice }: { invoice: PublicInvoiceDetail }) {
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-paper px-5">
-      <div className="w-full max-w-[460px] animate-pulse rounded-[24px] border-2 border-ink bg-cream p-6 shadow-[6px_6px_0_var(--color-ink)]">
+    <div className="mt-5 rounded-2xl border-[length:var(--co-bw)] border-dashed border-ink/30 px-4 py-3.5">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-[12.5px] font-semibold uppercase tracking-[0.08em] text-ink-soft">
+          Invoice {invoice.number}
+        </span>
+        {invoice.dueAt != null && (
+          <span className="text-[11.5px] text-ink-soft">
+            Due{" "}
+            {new Date(invoice.dueAt).toLocaleDateString("en-US", {
+              month: "short",
+              day: "numeric",
+              year: "numeric",
+            })}
+          </span>
+        )}
+      </div>
+
+      <div className="mt-2.5 space-y-1.5">
+        {invoice.items.map((it) => (
+          <div key={it.id} className="flex items-baseline justify-between gap-4 text-[13px]">
+            <span className="min-w-0 flex-1 truncate text-ink">
+              <span className="text-ink-soft">×{it.quantity} </span>
+              {it.description}
+            </span>
+            <span className="shrink-0 font-medium">{formatUsd(it.amountUsd)}</span>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-3 space-y-1 border-t border-ink/15 pt-2.5 text-[13px]">
+        <div className="flex items-center justify-between">
+          <span className="text-ink-soft">Subtotal</span>
+          <span className="font-medium">{formatUsd(invoice.subtotalUsd)}</span>
+        </div>
+        {invoice.taxUsd > 0 && (
+          <div className="flex items-center justify-between">
+            <span className="text-ink-soft">Tax</span>
+            <span className="font-medium">{formatUsd(invoice.taxUsd)}</span>
+          </div>
+        )}
+        <div className="flex items-center justify-between pt-1 text-[15px] font-semibold">
+          <span>Total due</span>
+          <span>{formatUsd(invoice.totalUsd)}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Skeleton({ style }: { style?: CSSProperties }) {
+  return (
+    <div className="flex min-h-screen flex-col items-center justify-center bg-paper px-5" style={style}>
+      <div className="w-full max-w-[var(--co-width)] animate-pulse rounded-[var(--co-radius)] border-[length:var(--co-bw)] border-ink bg-cream p-6 shadow-[var(--co-shadow)]">
         <div className="flex items-center gap-3">
           <div className="h-11 w-11 rounded-full bg-ink/10" />
           <div className="flex-1">
@@ -116,7 +195,13 @@ function Skeleton() {
   );
 }
 
-async function createIntentApi(cfg: CheckoutConfig, amount: number, chain: string, coin: string): Promise<PublicIntent> {
+async function createIntentApi(
+  cfg: CheckoutConfig,
+  amount: number,
+  chain: string,
+  coin: string,
+  invoiceId?: string | null,
+): Promise<PublicIntent> {
   const res = await fetch("/api/payments", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -130,6 +215,7 @@ async function createIntentApi(cfg: CheckoutConfig, amount: number, chain: strin
       max: cfg.max,
       chain,
       coin,
+      invoiceId: invoiceId ?? null,
     }),
   });
   const data = (await res.json()) as { intent?: PublicIntent; error?: string };
@@ -173,16 +259,24 @@ function sameIntent(a: PublicIntent | null, b: PublicIntent): boolean {
 export default function HostedCheckout({
   receiver,
   link = null,
+  invoice = null,
+  invoiceId = null,
+  appearance = null,
 }: {
   receiver: string;
   link?: PublicLink | null;
+  invoice?: PublicInvoiceDetail | null;
+  invoiceId?: string | null;
+  appearance?: CheckoutAppearance | null;
 }) {
+  const look = appearance ?? DEFAULT_APPEARANCE;
+  const availableMethods: Method[] = look.methods.length ? look.methods : ["wallet"];
   const [phase, setPhase] = useState<Phase>("loading");
   const [cfg, setCfg] = useState<CheckoutConfig | null>(null);
   const [amountText, setAmountText] = useState("");
   const [chain, setChain] = useState("");
   const [coin, setCoin] = useState("");
-  const [method, setMethod] = useState<Method>("wallet");
+  const [method, setMethod] = useState<Method>(availableMethods[0]);
   const [intent, setIntent] = useState<PublicIntent | null>(null);
   const [qrHash, setQrHash] = useState("");
   const [paying, setPaying] = useState(false);
@@ -199,6 +293,13 @@ export default function HostedCheckout({
 
   const net = testnetByName(chain);
   const wrongNetwork = isConnected && net != null && chainId !== net.chainId;
+
+  const bgImage = safeBackgroundImage(look.backgroundImage);
+  const rootStyle = {
+    ...appearanceToCssVars(look),
+    ...(bgImage ? { backgroundImage: bgImage } : {}),
+  } as CSSProperties;
+  const brandLabel = look.brandName || (cfg?.merchant ?? "");
 
   // When the checkout is driven by a stored link, only offer the pairs the
   // merchant enabled during onboarding.
@@ -284,6 +385,14 @@ export default function HostedCheckout({
     });
   }, [link]);
 
+  // Mark a sent invoice as viewed the first time its checkout page loads.
+  useEffect(() => {
+    if (!invoice || invoice.status !== "sent") return;
+    void Promise.resolve(
+      orpcClient.invoices.markViewed({ slug: invoice.slug }),
+    ).catch(() => {});
+  }, [invoice]);
+
   // Poll while a QR intent is waiting for an (auto-detected) transaction.
   useEffect(() => {
     if (!intent || intent.status !== "awaiting_payment" || phase === "processing") return;
@@ -354,15 +463,19 @@ export default function HostedCheckout({
     };
   }, [phase, intent]);
 
-  if (phase === "loading") return <Skeleton />;
+  if (phase === "loading") return <Skeleton style={rootStyle} />;
 
   if (phase === "invalid" || !cfg) {
     return (
-      <div className="flex min-h-screen flex-col bg-paper text-ink">
-        <Brand />
+      <div className="flex min-h-screen flex-col bg-paper text-ink" style={rootStyle}>
+        <Brand
+          showBranding={look.showBranding}
+          brandName={look.brandName}
+          logoUrl={look.logoUrl}
+        />
         <main className="mx-auto flex w-full max-w-[460px] flex-1 items-center px-5 py-10">
-          <div className="w-full rounded-[24px] border-2 border-ink bg-cream p-7 text-center shadow-[6px_6px_0_var(--color-ink)]">
-            <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-full border-2 border-ink bg-coral">
+          <div className="w-full rounded-[var(--co-radius)] border-[length:var(--co-bw)] border-ink bg-cream p-7 text-center shadow-[var(--co-shadow)]">
+            <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-full border-[length:var(--co-bw)] border-ink bg-coral">
               <svg width="22" height="22" viewBox="0 0 20 20" fill="none">
                 <path d="M10 5.5v5M10 14h.01" stroke="#191410" strokeWidth="2.2" strokeLinecap="round" />
               </svg>
@@ -376,18 +489,20 @@ export default function HostedCheckout({
             </p>
             <Link
               href="/"
-              className="mt-7 inline-flex h-12 items-center justify-center rounded-full border-2 border-ink bg-cream px-7 text-[14.5px] font-semibold shadow-[3px_3px_0_var(--color-ink)] transition-all hover:-translate-y-0.5 hover:bg-sun"
+              className="mt-7 inline-flex h-12 items-center justify-center rounded-[var(--co-btn-radius)] border-[length:var(--co-bw)] border-ink bg-cream px-7 text-[14.5px] font-semibold shadow-[var(--co-shadow-sm)] transition-all hover:-translate-y-0.5 hover:bg-sun hover:text-[#191410]"
             >
               Go to AirPay
             </Link>
           </div>
         </main>
-        <footer className="pb-7 text-center text-[12.5px] text-ink-soft">
-          Powered by{" "}
-          <Link href="/" className="font-semibold text-violet hover:underline">
-            AirPay
-          </Link>
-        </footer>
+        {look.showBranding && (
+          <footer className="pb-7 text-center text-[12.5px] text-ink-soft">
+            Powered by{" "}
+            <Link href="/" className="font-semibold text-violet hover:underline">
+              AirPay
+            </Link>
+          </footer>
+        )}
       </div>
     );
   }
@@ -454,7 +569,7 @@ export default function HostedCheckout({
         return;
       }
 
-      const created = await createIntentApi(cfg, amountNum, chain, coin);
+      const created = await createIntentApi(cfg, amountNum, chain, coin, invoiceId);
       const units = BigInt(created.expectedUnits);
       let hash: `0x${string}`;
       if (coin === "ETH") {
@@ -487,7 +602,7 @@ export default function HostedCheckout({
     setPayError(null);
     setPaying(true);
     try {
-      const created = await createIntentApi(cfg, amountNum, chain, coin);
+      const created = await createIntentApi(cfg, amountNum, chain, coin, invoiceId);
       setIntent(created);
     } catch (err) {
       setPayError(err instanceof Error ? err.message : "Could not start payment.");
@@ -537,11 +652,20 @@ export default function HostedCheckout({
 
   const merchantRow = (
     <div className="flex items-center gap-3">
-      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border-2 border-ink bg-violet text-[14px] font-bold text-cream">
-        {initials(cfg.merchant)}
-      </span>
+      {look.showAvatar && (
+        <span
+          className={`flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden border-[length:var(--co-bw)] border-ink bg-violet text-[14px] font-bold text-[var(--co-accent-text)] ${logoShapeClass(look.logoShape)}`}
+        >
+          {look.logoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={look.logoUrl} alt="" className="h-full w-full object-cover" />
+          ) : (
+            initials(brandLabel || cfg.merchant)
+          )}
+        </span>
+      )}
       <div className="min-w-0">
-        <p className="truncate text-[14.5px] font-semibold">{cfg.merchant}</p>
+        <p className="truncate text-[14.5px] font-semibold">{brandLabel || cfg.merchant}</p>
         <p className="truncate text-[13px] text-ink-soft">{cfg.title}</p>
       </div>
     </div>
@@ -597,28 +721,43 @@ export default function HostedCheckout({
         : !amountReady || insufficient);
 
   return (
-    <div className="flex min-h-screen flex-col bg-paper text-ink">
-      <Brand />
+    <div className="flex min-h-screen flex-col bg-paper text-ink" style={rootStyle}>
+      <Brand
+        showBranding={look.showBranding}
+        brandName={look.brandName}
+        logoUrl={look.logoUrl}
+      />
 
-      <main className="mx-auto w-full max-w-[460px] flex-1 px-5 py-6">
+      <main className="mx-auto w-full max-w-[var(--co-width)] flex-1 px-5 py-6">
         {phase === "checkout" && (
-          <div className="rounded-[24px] border-2 border-ink bg-cream p-6 shadow-[5px_5px_0_var(--color-ink)] sm:shadow-[7px_7px_0_var(--color-ink)]">
+          <div className="rounded-[var(--co-radius)] border-[length:var(--co-bw)] border-ink bg-cream p-6 shadow-[var(--co-shadow)]">
+            {look.headline && (
+              <p className="mb-3 text-[15px] font-semibold tracking-[-0.01em]">{look.headline}</p>
+            )}
             {merchantRow}
+            {look.subtext && (
+              <p className="mt-3 text-[13px] leading-[1.5] text-ink-soft">{look.subtext}</p>
+            )}
 
             <div className="mt-5">
-              <AmountBlock
-                cfg={cfg}
-                text={amountText}
-                onTextChange={setAmountText}
-                coin={coin}
-                error={amountError}
-              />
+              {invoice ? (
+                <InvoiceBreakdown invoice={invoice} />
+              ) : (
+                <AmountBlock
+                  cfg={cfg}
+                  text={amountText}
+                  onTextChange={setAmountText}
+                  coin={coin}
+                  error={amountError}
+                />
+              )}
             </div>
 
             <div className="mt-5 space-y-4">
               <NetworkPicker
                 value={chain}
                 chains={allowedChainNames}
+                showTestnetBadge={look.showTestnetBadge}
                 onChange={(next) => {
                   setChain(next);
                   const available = allowedCoinsFor(next) ?? coinsForChain(next);
@@ -633,7 +772,7 @@ export default function HostedCheckout({
               />
             </div>
 
-            <div className="mt-5 rounded-2xl border-2 border-dashed border-ink/30 px-4 py-3.5 text-[13.5px]">
+            <div className="mt-5 rounded-2xl border-[length:var(--co-bw)] border-dashed border-ink/30 px-4 py-3.5 text-[13.5px]">
               <div className="flex items-center justify-between py-1">
                 <span className="text-ink-soft">You pay</span>
                 <span className="font-semibold">{expectedCoinStr}</span>
@@ -642,67 +781,68 @@ export default function HostedCheckout({
                 <span className="text-ink-soft">Network</span>
                 <span className="flex items-center gap-1.5 font-medium">
                   {net?.name ?? chain}
-                  <span className="rounded-full border border-ink/25 px-1.5 py-px text-[10px] font-semibold uppercase text-ink-soft">
-                    testnet
+                  {look.showTestnetBadge && (
+                    <span className="rounded-full border border-ink/25 px-1.5 py-px text-[10px] font-semibold uppercase text-ink-soft">
+                      testnet
+                    </span>
+                  )}
+                </span>
+              </div>
+              {look.showFeeRow && (
+                <div className="flex items-center justify-between py-1">
+                  <span className="text-ink-soft">Network fee</span>
+                  <span className="font-semibold text-ink">
+                    Gas paid in your wallet
                   </span>
-                </span>
-              </div>
-              <div className="flex items-center justify-between py-1">
-                <span className="text-ink-soft">Network fee</span>
-                <span className="font-semibold text-ink">
-                  Gas paid in your wallet
-                </span>
-              </div>
+                </div>
+              )}
             </div>
 
             {!receiverReady && (
-              <p className="mt-4 rounded-xl border-2 border-coral/60 bg-coral/10 px-3 py-2 text-[12.5px] font-medium text-coral-deep">
+              <p className="mt-4 rounded-xl border-[length:var(--co-bw)] border-coral/60 bg-coral/10 px-3 py-2 text-[12.5px] font-medium text-coral-deep">
                 Merchant address not configured. Set RECEIVER_ADDRESS in .env.local.
               </p>
             )}
 
-            <div>
-              <p className="mb-2 text-[13px] font-medium text-ink-soft">Pay with</p>
-              <div className="flex gap-1 rounded-full border-2 border-ink bg-paper p-1">
-                {(
-                  [
-                    { value: "wallet", label: "Wallet" },
-                    { value: "qr", label: "QR code" },
-                  ] as const
-                ).map((opt) => (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    onClick={() => setMethod(opt.value)}
-                    aria-pressed={method === opt.value}
-                    className={`flex flex-1 items-center justify-center gap-1.5 rounded-full px-4 py-2 text-[13.5px] font-semibold transition-all ${
-                      method === opt.value
-                        ? "bg-ink text-cream shadow-[2px_2px_0_var(--color-violet)]"
-                        : "text-ink-soft hover:text-ink"
-                    }`}
-                  >
-                    {opt.value === "wallet" ? (
-                      <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
-                        <rect x="1.5" y="3" width="11" height="8.5" rx="1.8" stroke="currentColor" strokeWidth="1.5" />
-                        <path d="M9 6.75h2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                      </svg>
-                    ) : (
-                      <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
-                        <rect x="1.5" y="1.5" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.4" />
-                        <rect x="8" y="1.5" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.4" />
-                        <rect x="1.5" y="8" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.4" />
-                        <path d="M8 8h2v2H8zM11 11h1.5v1.5H11z" fill="currentColor" />
-                      </svg>
-                    )}
-                    {opt.label}
-                  </button>
-                ))}
+            {availableMethods.length > 1 && (
+              <div>
+                <p className="mb-2 text-[13px] font-medium text-ink-soft">Pay with</p>
+                <div className="flex gap-1 rounded-[var(--co-btn-radius)] border-[length:var(--co-bw)] border-ink bg-paper p-1">
+                  {availableMethods.map((value) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setMethod(value)}
+                      aria-pressed={method === value}
+                      className={`flex flex-1 items-center justify-center gap-1.5 rounded-[var(--co-btn-radius)] px-4 py-2 text-[13.5px] font-semibold transition-all ${
+                        method === value
+                          ? "bg-violet text-[var(--co-accent-text)] shadow-[var(--co-shadow-sm)]"
+                          : "text-ink-soft hover:text-ink"
+                      }`}
+                    >
+                      {value === "wallet" ? (
+                        <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
+                          <rect x="1.5" y="3" width="11" height="8.5" rx="1.8" stroke="currentColor" strokeWidth="1.5" />
+                          <path d="M9 6.75h2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                        </svg>
+                      ) : (
+                        <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
+                          <rect x="1.5" y="1.5" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.4" />
+                          <rect x="8" y="1.5" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.4" />
+                          <rect x="1.5" y="8" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.4" />
+                          <path d="M8 8h2v2H8zM11 11h1.5v1.5H11z" fill="currentColor" />
+                        </svg>
+                      )}
+                      {value === "wallet" ? "Wallet" : "QR code"}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
 
             {method === "qr" && (
-              <div className="mt-5 rounded-2xl border-2 border-ink bg-paper px-4 py-4">
-                <div className="mx-auto w-fit rounded-xl border-2 border-ink/15 bg-white p-2.5">
+              <div className="mt-5 rounded-2xl border-[length:var(--co-bw)] border-ink bg-paper px-4 py-4">
+                <div className="mx-auto w-fit rounded-xl border-[length:var(--co-bw)] border-ink/15 bg-white p-2.5">
                   <QRCodeSVG
                     value={
                       receiverReady
@@ -739,7 +879,7 @@ export default function HostedCheckout({
                     <button
                       type="button"
                       onClick={() => doCopy(receiver)}
-                      className={`shrink-0 rounded-full border-2 border-ink px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+                      className={`shrink-0 rounded-[var(--co-btn-radius)] border-[length:var(--co-bw)] border-ink px-2.5 py-1 text-[11px] font-semibold text-[#191410] transition-colors ${
                         copied ? "bg-mint" : "bg-sun hover:bg-sun/70"
                       }`}
                     >
@@ -760,7 +900,7 @@ export default function HostedCheckout({
                       placeholder="0x…"
                       spellCheck={false}
                       autoComplete="off"
-                      className="mt-1.5 w-full rounded-xl border-2 border-ink/25 bg-cream px-3 py-2 font-mono text-[12px] outline-none focus:border-ink"
+                      className="mt-1.5 w-full rounded-xl border-[length:var(--co-bw)] border-ink/25 bg-cream px-3 py-2 font-mono text-[12px] outline-none focus:border-ink"
                     />
                     <p className="mt-1.5 text-[11.5px] text-ink-soft">
                       We verify every transaction on-chain before confirming.
@@ -771,7 +911,7 @@ export default function HostedCheckout({
             )}
 
             {method === "wallet" && isConnected && address && (
-              <div className="mt-5 flex items-center gap-3 rounded-2xl border-2 border-ink bg-paper px-4 py-3">
+              <div className="mt-5 flex items-center gap-3 rounded-2xl border-[length:var(--co-bw)] border-ink bg-paper px-4 py-3">
                 <span className="h-8 w-8 shrink-0 rounded-full bg-gradient-to-br from-violet to-sky" />
                 <div className="min-w-0 flex-1">
                   <p className="font-mono text-[13px] font-medium">
@@ -794,7 +934,7 @@ export default function HostedCheckout({
             )}
 
             {payError && (
-              <p className="mt-4 rounded-xl border-2 border-coral/60 bg-coral/10 px-3 py-2 text-[12.5px] font-medium text-coral-deep">
+              <p className="mt-4 rounded-xl border-[length:var(--co-bw)] border-coral/60 bg-coral/10 px-3 py-2 text-[12.5px] font-medium text-coral-deep">
                 {payError}
               </p>
             )}
@@ -803,10 +943,10 @@ export default function HostedCheckout({
               type="button"
               onClick={onPrimary}
               disabled={primaryDisabled}
-              className="mt-1 flex h-13 w-full items-center justify-center gap-2 rounded-full bg-violet text-[15.5px] font-semibold text-cream shadow-[4px_4px_0_var(--color-ink)] transition-all hover:-translate-y-0.5 hover:bg-violet-deep disabled:pointer-events-none disabled:opacity-45"
+              className="mt-1 flex h-13 w-full items-center justify-center gap-2 rounded-[var(--co-btn-radius)] bg-violet text-[15.5px] font-semibold text-[var(--co-accent-text)] shadow-[var(--co-shadow-sm)] transition-all hover:-translate-y-0.5 hover:bg-violet-deep disabled:pointer-events-none disabled:opacity-45"
             >
               {paying ? (
-                <span className="h-4 w-4 animate-spin rounded-full border-2 border-cream/40 border-t-cream" />
+                <span className="h-4 w-4 animate-spin rounded-full border-[length:var(--co-bw)] border-[var(--co-accent-text)]/40 border-t-[var(--co-accent-text)]" />
               ) : (
                 primaryLabel ?? "Continue"
               )}
@@ -820,7 +960,7 @@ export default function HostedCheckout({
         )}
 
         {phase === "processing" && intent && (
-          <div className="rounded-[24px] border-2 border-ink bg-cream p-6 shadow-[5px_5px_0_var(--color-ink)] sm:shadow-[7px_7px_0_var(--color-ink)]">
+          <div className="rounded-[var(--co-radius)] border-[length:var(--co-bw)] border-ink bg-cream p-6 shadow-[var(--co-shadow)]">
             {merchantRow}
             <p className="mt-5 text-[30px] font-semibold leading-none tracking-[-0.02em]">
               {formatUsd(intent.amountUsd)}
@@ -835,7 +975,7 @@ export default function HostedCheckout({
                 <div key={s.label} className="flex gap-3.5">
                   <div className="flex flex-col items-center">
                     <span
-                      className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 border-ink text-[11px] font-bold ${
+                      className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-[length:var(--co-bw)] border-ink text-[11px] font-bold ${
                         i < procStep
                           ? "bg-mint"
                           : i === procStep
@@ -854,7 +994,7 @@ export default function HostedCheckout({
                           />
                         </svg>
                       ) : i === procStep ? (
-                        <span className="h-3 w-3 animate-spin rounded-full border-2 border-ink/30 border-t-ink" />
+                        <span className="h-3 w-3 animate-spin rounded-full border-[length:var(--co-bw)] border-ink/30 border-t-ink" />
                       ) : (
                         <span className="h-1.5 w-1.5 rounded-full bg-ink/30" />
                       )}
@@ -889,9 +1029,9 @@ export default function HostedCheckout({
         )}
 
         {phase === "success" && receipt && (
-          <div className="rounded-[24px] border-2 border-ink bg-cream p-6 shadow-[5px_5px_0_var(--color-ink)] sm:shadow-[7px_7px_0_var(--color-ink)]">
+          <div className="rounded-[var(--co-radius)] border-[length:var(--co-bw)] border-ink bg-cream p-6 shadow-[var(--co-shadow)]">
             <div className="flex flex-col items-center pt-2 text-center">
-              <span className="flex h-16 w-16 items-center justify-center rounded-full border-2 border-ink bg-mint shadow-[3px_3px_0_var(--color-ink)]">
+              <span className="flex h-16 w-16 items-center justify-center rounded-full border-[length:var(--co-bw)] border-ink bg-mint shadow-[var(--co-shadow-sm)]">
                 <svg width="26" height="26" viewBox="0 0 16 16" fill="none">
                   <path
                     d="M3 8.5l3.5 3.5L13 5"
@@ -914,7 +1054,7 @@ export default function HostedCheckout({
               </p>
             </div>
 
-            <div className="mt-6 rounded-2xl border-2 border-ink bg-paper">
+            <div className="mt-6 rounded-2xl border-[length:var(--co-bw)] border-ink bg-paper">
               {[
                 ["Paid to", receipt.merchant],
                 ["For", receipt.title],
@@ -938,7 +1078,7 @@ export default function HostedCheckout({
                   <button
                     type="button"
                     onClick={() => doCopy(receipt.tx)}
-                    className={`shrink-0 rounded-full border-2 border-ink px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+                    className={`shrink-0 rounded-[var(--co-btn-radius)] border-[length:var(--co-bw)] border-ink px-2.5 py-1 text-[11px] font-semibold text-[#191410] transition-colors ${
                       copied ? "bg-mint" : "bg-sun hover:bg-sun/70"
                     }`}
                   >
@@ -953,7 +1093,7 @@ export default function HostedCheckout({
                 href={receipt.explorer}
                 target="_blank"
                 rel="noreferrer"
-                className="mt-4 flex h-11 w-full items-center justify-center rounded-full border-2 border-ink bg-paper text-[13.5px] font-semibold transition-colors hover:bg-sun"
+                className="mt-4 flex h-11 w-full items-center justify-center rounded-[var(--co-btn-radius)] border-[length:var(--co-bw)] border-ink bg-paper text-[13.5px] font-semibold transition-colors hover:bg-sun hover:text-[#191410]"
               >
                 View on block explorer ↗
               </a>
@@ -968,7 +1108,7 @@ export default function HostedCheckout({
                 setPayError(null);
                 setPhase("checkout");
               }}
-              className="mt-3 h-12 w-full rounded-full border-2 border-ink bg-cream text-[14.5px] font-semibold shadow-[3px_3px_0_var(--color-ink)] transition-all hover:-translate-y-0.5 hover:bg-sun"
+              className="mt-3 h-12 w-full rounded-[var(--co-btn-radius)] border-[length:var(--co-bw)] border-ink bg-cream text-[14.5px] font-semibold shadow-[var(--co-shadow-sm)] transition-all hover:-translate-y-0.5 hover:bg-sun hover:text-[#191410]"
             >
               Make another payment
             </button>
@@ -978,12 +1118,20 @@ export default function HostedCheckout({
 
       <WalletModal open={walletModalOpen} onClose={() => setWalletModalOpen(false)} />
 
-      <footer className="pb-7 text-center text-[12.5px] text-ink-soft">
-        Powered by{" "}
-        <Link href="/" className="font-semibold text-violet hover:underline">
-          AirPay
-        </Link>
-      </footer>
+      {look.footerNote && (
+        <p className="mx-auto w-full max-w-[var(--co-width)] px-5 pb-2 text-center text-[12px] leading-[1.5] text-ink-soft">
+          {look.footerNote}
+        </p>
+      )}
+
+      {look.showBranding && (
+        <footer className="pb-7 text-center text-[12.5px] text-ink-soft">
+          Powered by{" "}
+          <Link href="/" className="font-semibold text-violet hover:underline">
+            AirPay
+          </Link>
+        </footer>
+      )}
     </div>
   );
 }

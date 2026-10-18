@@ -10,13 +10,24 @@ export function toPayment(p: PublicIntent): Payment {
         : "Pending";
   return {
     id: p.id,
-    customer: p.merchant,
-    email: "",
+    merchant: p.merchant,
+    payer: p.payer,
+    amountUsd: p.amountUsd,
     amount: `$${p.amountUsd.toFixed(2)}`,
     coin: p.token,
     chain: p.chainName,
+    chainKey: p.chainKey,
     status,
+    statusRaw: p.status,
     time: new Date(p.createdAt).toLocaleString(),
+    createdAt: p.createdAt,
+    confirmedAt: p.confirmedAt,
+    txHash: p.txHash,
+    explorerTx: p.explorerTx,
+    receiver: p.receiver,
+    confirmations: p.confirmations,
+    requiredConfirmations: p.requiredConfirmations,
+    environment: p.environment,
   };
 }
 
@@ -61,13 +72,6 @@ export function downloadCsv(filename: string, rows: (string | number)[][]) {
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
-}
-
-export function fakeTxHash(id: string): string {
-  const hex = Array.from(id)
-    .map((c) => c.charCodeAt(0).toString(16).padStart(2, "0"))
-    .join("");
-  return `0x${(hex + "a3f9c21e8b47d650f1c8e2b9a74d3f6e0c5b2198").slice(0, 40)}`;
 }
 
 export function shortWallet(addr: string): string {
