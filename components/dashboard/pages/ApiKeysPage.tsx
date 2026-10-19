@@ -15,6 +15,8 @@ interface ApiKeyRow {
   label: string;
   prefix: string;
   lastFour: string;
+  kind: "secret" | "publishable";
+  publicValue: string | null;
   scope: string;
   revoked: boolean;
   createdAt: number;
@@ -37,6 +39,7 @@ export default function ApiKeysPage() {
   const [label, setLabel] = useState("");
   const [scope, setScope] = useState<"full" | "readonly">("full");
   const [freshSecret, setFreshSecret] = useState<string | null>(null);
+  const [publishable, setPublishable] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery({
@@ -67,6 +70,19 @@ export default function ApiKeysPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["apiKeys"] }),
   });
 
+  const ensurePublishable = useMutation({
+    mutationFn: async () =>
+      (await orpcClient.apiKeys.ensurePublishable()) as { id: string; publicKey: string },
+    onSuccess: (res) => {
+      setPublishable(res.publicKey);
+      setError(null);
+      queryClient.invalidateQueries({ queryKey: ["apiKeys"] });
+    },
+    onError: (err) => {
+      setError(err instanceof Error ? err.message : "Could not load the publishable key.");
+    },
+  });
+
   const keys = data ?? [];
   const active = keys.filter((k) => !k.revoked);
 
@@ -88,21 +104,52 @@ export default function ApiKeysPage() {
     <>
       <PageHeader
         title="API keys"
-        description="Authenticate server-side requests to the AirPay API."
+        description="Secret keys authenticate server-side calls. Publishable keys are safe in browsers."
         actions={
-          <button
-            onClick={startCreating}
-            className="d-glow flex h-9 items-center gap-1.5 rounded-lg bg-d-accent px-4 text-[13px] font-medium text-cream transition-colors hover:bg-d-accent-deep"
-          >
-            {creating ? "Cancel" : "Create API key"}
-            {!creating && (
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                <path d="M6 1.5v9M1.5 6h9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-              </svg>
-            )}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => ensurePublishable.mutate()}
+              disabled={ensurePublishable.isPending}
+              className="flex h-9 items-center rounded-lg border border-d-edge px-4 text-[13px] font-medium text-d-ink transition-colors hover:bg-d-raised disabled:opacity-60"
+            >
+              {ensurePublishable.isPending ? "Loading…" : "Publishable key"}
+            </button>
+            <button
+              onClick={startCreating}
+              className="d-glow flex h-9 items-center gap-1.5 rounded-lg bg-d-accent px-4 text-[13px] font-medium text-cream transition-colors hover:bg-d-accent-deep"
+            >
+              {creating ? "Cancel" : "Create API key"}
+              {!creating && (
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                  <path d="M6 1.5v9M1.5 6h9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                </svg>
+              )}
+            </button>
+          </div>
         }
       />
+
+      {publishable && (
+        <div className="mb-4 rounded-2xl border border-d-edge bg-d-raised p-4">
+          <p className="text-[13px] font-medium text-d-ink">
+            Publishable key — safe to use in the browser with the AirPay.js SDK.
+          </p>
+          <div className="mt-2.5 flex flex-wrap items-center gap-2">
+            <code className="min-w-0 flex-1 break-all rounded-lg border border-d-edge bg-d-raised px-3 py-2 font-mono text-[12.5px] text-d-ink">
+              {publishable}
+            </code>
+            <CopyButton text={publishable} ariaLabel="Copy publishable key" copiedChildren="Copied">
+              Copy
+            </CopyButton>
+            <button
+              onClick={() => setPublishable(null)}
+              className="shrink-0 rounded-lg border border-d-edge px-3.5 py-2 text-[12.5px] font-medium text-d-ink transition-colors hover:bg-d-raised"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
 
       {freshSecret && (
         <div className="mb-4 rounded-2xl border border-d-success/40 bg-d-success/10 p-4">
@@ -185,7 +232,7 @@ export default function ApiKeysPage() {
             <div className="px-5 py-8 text-center">
               <p className="text-[13px] font-medium text-d-ink">No API keys yet</p>
               <p className="mt-1 text-[12.5px] text-d-muted">
-                Create a key to authenticate server-side requests.
+                Create a secret key for your server, or load the publishable key for the browser.
               </p>
             </div>
           ) : (
@@ -198,16 +245,41 @@ export default function ApiKeysPage() {
                         {k.label}
                       </p>
                       <span className="rounded-md bg-d-raised px-2 py-0.5 text-[10.5px] font-medium text-d-muted">
-                        {k.prefix === "ap_live" ? "live" : "test"}
+                        {k.prefix.endsWith("live") ? "live" : "test"}
                       </span>
-                      <span className="rounded-md border border-d-edge px-2 py-0.5 text-[10.5px] text-d-muted">
-                        {k.scope === "readonly" ? "Read only" : "Full access"}
+                      <span
+                        className={`rounded-md border px-2 py-0.5 text-[10.5px] ${
+                          k.kind === "publishable"
+                            ? "border-d-accent/40 bg-d-accent/10 text-d-ink"
+                            : "border-d-edge text-d-muted"
+                        }`}
+                      >
+                        {k.kind === "publishable"
+                          ? "Publishable"
+                          : k.scope === "readonly"
+                            ? "Read only"
+                            : "Full access"}
                       </span>
                     </div>
                     <div className="mt-1.5 flex items-center gap-2">
-                      <code className="font-mono text-[12px] text-d-muted">
-                        {k.prefix}_••••••{k.lastFour}
-                      </code>
+                      {k.kind === "publishable" && k.publicValue ? (
+                        <>
+                          <code className="break-all font-mono text-[12px] text-d-muted">
+                            {k.publicValue}
+                          </code>
+                          <CopyButton
+                            text={k.publicValue}
+                            ariaLabel="Copy publishable key"
+                            copiedChildren="Copied"
+                          >
+                            Copy
+                          </CopyButton>
+                        </>
+                      ) : (
+                        <code className="font-mono text-[12px] text-d-muted">
+                          {k.prefix}_••••••{k.lastFour}
+                        </code>
+                      )}
                     </div>
                     <p className="mt-1.5 text-[11.5px] text-d-muted/80">
                       Created {formatDate(k.createdAt)} · Last used{" "}
@@ -237,8 +309,9 @@ export default function ApiKeysPage() {
       </Card>
 
       <p className="mt-4 text-[12px] leading-[1.5] text-d-muted">
-        Keep secret keys on your server only. Never expose them in client-side code or
-        public repositories.
+        Keep secret keys on your server only — never in client-side code or public repos.
+        Publishable keys are safe to ship in browsers and can only read config and confirm
+        intents.
       </p>
     </>
   );

@@ -34,6 +34,11 @@ export interface Payment {
   confirmations: number;
   requiredConfirmations: number;
   environment: Environment;
+  /** Settlement contract routing — null for the legacy direct-transfer path. */
+  merchantId: string | null;
+  feeBps: number | null;
+  feeUsd: number | null;
+  netUsd: number | null;
 }
 
 /** Brand colors for the coins the platform supports. */

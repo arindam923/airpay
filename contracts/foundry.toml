@@ -1,0 +1,29 @@
+[profile.default]
+src = "src"
+test = "test"
+script = "script"
+out = "out"
+libs = ["lib"]
+allow_paths = ["../node_modules"]
+solc = "0.8.28"
+optimizer = true
+optimizer_runs = 200
+evm_version = "cancun"
+fs_permissions = []
+
+# Base Sepolia (primary testnet target)
+[rpc_endpoints]
+base_sepolia = "${RPC_BASE_SEPOLIA}"
+ethereum_sepolia = "${RPC_ETHEREUM_SEPOLIA}"
+arbitrum_sepolia = "${RPC_ARBITRUM_SEPOLIA}"
+optimism_sepolia = "${RPC_OPTIMISM_SEPOLIA}"
+polygon_amoy = "${RPC_POLYGON_AMOY}"
+
+[etherscan]
+base_sepolia = { key = "${ETHERSCAN_API_KEY}", chain = 84532 }
+ethereum_sepolia = { key = "${ETHERSCAN_API_KEY}", chain = 11155111 }
+arbitrum_sepolia = { key = "${ETHERSCAN_API_KEY}", chain = 421614 }
+optimism_sepolia = { key = "${ETHERSCAN_API_KEY}", chain = 11155420 }
+polygon_amoy = { key = "${ETHERSCAN_API_KEY}", chain = 80002 }
+
+# See https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

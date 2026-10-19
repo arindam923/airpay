@@ -15,6 +15,11 @@ export type InvoiceTemplate = "minimal" | "classic" | "branded";
 
 export type WebhookDeliveryStatus = "pending" | "success" | "failed" | "exhausted";
 
+/** Secret keys authenticate servers; publishable keys identify browsers. */
+export type ApiKeyKind = "secret" | "publishable";
+
+export type CheckoutSessionStatus = "open" | "complete" | "expired";
+
 export interface WebhookEndpoint {
   id: string;
   url: string;
@@ -90,6 +95,13 @@ export interface PublicIntent {
   chainName: string;
   expectedUnits: string;
   receiver: string;
+  /** Settlement contract routing — null for the legacy direct-transfer path. */
+  merchantId: string | null;
+  feeBps: number | null;
+  feeUnits: string | null;
+  netUnits: string | null;
+  feeUsd: number | null;
+  netUsd: number | null;
   payer: string | null;
   txHash: string | null;
   confirmations: number;
@@ -102,6 +114,7 @@ export interface PublicIntent {
   environment: Environment;
   /** Invoice this payment settles, when started from an invoice checkout. */
   invoiceId: string | null;
+  metadata: Record<string, string> | null;
   createdAt: number;
   confirmedAt: number | null;
 }

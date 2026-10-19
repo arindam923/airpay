@@ -29,7 +29,7 @@ export const linksRouter = {
   create: onboarded
     .input(createLinkSchema)
     .handler(async ({ input, context }) => {
-      assertEnvironmentEnabled(context.environment);
+      await assertEnvironmentEnabled(context.environment, context.organizationId);
       const db = await getDb();
       const rows = await db
         .select()

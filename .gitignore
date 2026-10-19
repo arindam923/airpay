@@ -39,12 +39,25 @@ yarn-error.log*
 # sqlite data
 /data
 
+# foundry / solidity build artifacts
+/contracts/out
+/contracts/cache
+/contracts/broadcast
+
 # vercel
 .vercel
 
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# SDK build output
+/sdk/**/dist
+/sdk/**/node_modules
+/sdk/**/__pycache__
+/sdk/**/*.egg-info
+/sdk/**/build
+*.pyc
 
 # ai tooling & agent skills
 .agents/
@@ -53,3 +66,6 @@ next-env.d.ts
 .cursor/
 .opencode/
 skills-lock.json
+
+
+todo.md

@@ -8,6 +8,7 @@ import { Card, CardHeader } from "../ui/Card";
 import Toggle from "../ui/Toggle";
 import Skeleton from "../ui/Skeleton";
 import { orpcClient } from "@/lib/orpc/client";
+import { formatFeePercent } from "@/lib/fees";
 import { CHAINS } from "@/components/pay/config";
 import CheckoutAppearanceEditor from "@/components/dashboard/CheckoutAppearanceEditor";
 import type { CheckoutAppearance } from "@/lib/checkout-appearance";
@@ -56,6 +57,19 @@ const EMPTY_EMAIL: EmailConfigView = {
   googleAvailable: false,
 };
 
+interface SettlementRow {
+  chainKey: string;
+  merchantId: string;
+  contractAddress: string;
+  payoutAddress: string;
+  feeBps: number;
+  status: "pending" | "active" | "failed";
+  environment: string;
+  registerTxHash: string | null;
+  error: string | null;
+  updatedAt: number;
+}
+
 interface SettingsRow {
   workspaceName?: string;
   payoutMode?: PayoutMode;
@@ -69,6 +83,11 @@ interface SettingsRow {
   invoiceReplyTo?: string;
   checkoutAppearance?: CheckoutAppearance | null;
   email?: EmailConfigView;
+  settlement?: SettlementRow[];
+  settlementAdminConfigured?: boolean;
+  productionEnabled?: boolean;
+  productionEnabledAt?: number | null;
+  productionReady?: boolean;
 }
 
 const inputClass =
@@ -78,6 +97,197 @@ const labelClass = "mb-1.5 block text-[12px] font-medium text-d-muted";
 
 function chainName(key: string): string {
   return CHAINS.find((c) => c.key === key)?.name ?? key;
+}
+
+const SETTLEMENT_STATUS: Record<
+  SettlementRow["status"],
+  { label: string; className: string }
+> = {
+  active: { label: "Active", className: "bg-d-success/10 text-d-success" },
+  pending: { label: "Pending", className: "bg-amber-500/10 text-amber-600" },
+  failed: { label: "Failed", className: "bg-red-500/10 text-red-600" },
+};
+
+function SettlementCard({ rows, adminConfigured }: { rows: SettlementRow[]; adminConfigured: boolean }) {
+  const queryClient = useQueryClient();
+  const sync = useMutation({
+    mutationFn: async () =>
+      (await orpcClient.settings.syncSettlement()) as { settlement: SettlementRow[] },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["settings"] }),
+  });
+
+  return (
+    <Card>
+      <CardHeader
+        title="On-chain settlement"
+        description="Payments route through AirPay's settlement contract — the platform fee is taken on-chain and the rest forwards to your payout wallet."
+      />
+      <div className="space-y-4 p-5">
+        {!adminConfigured ? (
+          <p className="rounded-lg border border-dashed border-d-edge px-4 py-3 text-[12.5px] text-d-muted">
+            Settlement isn&apos;t configured on this server yet. Add the contract addresses and admin
+            key, then save your payout settings again.
+          </p>
+        ) : rows.length === 0 ? (
+          <p className="rounded-lg border border-dashed border-d-edge px-4 py-3 text-[12.5px] text-d-muted">
+            No settlement networks registered yet. Save your payout destinations to register.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {rows.map((row) => {
+              const status = SETTLEMENT_STATUS[row.status];
+              return (
+                <div
+                  key={row.chainKey}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-d-edge bg-d-raised px-4 py-3"
+                >
+                  <div className="min-w-0">
+                    <p className="text-[13.5px] font-medium text-d-ink">{chainName(row.chainKey)}</p>
+                    <p className="mt-0.5 truncate font-mono text-[11.5px] text-d-muted">
+                      {row.contractAddress}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="font-mono text-[12px] text-d-muted">
+                      {formatFeePercent(row.feeBps)} fee
+                    </span>
+                    <span
+                      className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${status.className}`}
+                    >
+                      {status.label}
+                    </span>
+                  </div>
+                  {row.status === "failed" && row.error && (
+                    <p className="w-full text-[11.5px] text-red-600">{row.error}</p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {adminConfigured && (
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={() => sync.mutate()}
+              disabled={sync.isPending}
+              className="rounded-lg border border-d-edge bg-d-raised px-3.5 py-2 text-[12.5px] font-medium text-d-ink transition-colors hover:border-d-accent disabled:opacity-60"
+            >
+              {sync.isPending ? "Syncing…" : "Sync settlement"}
+            </button>
+            {sync.isError && (
+              <p className="text-[11.5px] text-red-600">
+                {sync.error instanceof Error ? sync.error.message : "Could not sync."}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+function GoLiveCard({ initial }: { initial: SettingsRow }) {
+  const queryClient = useQueryClient();
+  const enabled = initial.productionEnabled ?? false;
+  const ready = initial.productionReady ?? false;
+  const enabledAt = initial.productionEnabledAt ?? null;
+  const [error, setError] = useState("");
+
+  const checks = [
+    { label: "Workspace name set", done: !!initial.workspaceName?.trim() },
+    { label: "At least one network enabled", done: (initial.enabledChains?.length ?? 0) > 0 },
+    { label: "Payout destination saved", done: !!initial.payoutWallet?.trim() },
+  ];
+  const eligible = checks.every((c) => c.done);
+
+  const setProduction = useMutation({
+    mutationFn: async (next: boolean) =>
+      await orpcClient.settings.setProduction({ enabled: next }),
+    onSuccess: () => {
+      setError("");
+      queryClient.invalidateQueries({ queryKey: ["settings"] });
+    },
+    onError: (err) => {
+      setError(err instanceof Error ? err.message : "Could not update production.");
+    },
+  });
+
+  const status: { label: string; className: string } = enabled
+    ? ready
+      ? { label: "Live", className: "bg-d-success/10 text-d-success" }
+      : { label: "Pending mainnet", className: "bg-amber-500/10 text-amber-600" }
+    : { label: "Sandbox only", className: "bg-d-raised text-d-muted" };
+
+  const since = enabled && enabledAt
+    ? ` Opted in ${new Date(enabledAt).toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      })}.`
+    : "";
+
+  return (
+    <Card>
+      <CardHeader
+        title="Go live"
+        description="Accept real mainnet payments. Sandbox runs on testnets and is always available."
+        actions={
+          <span className={`rounded-full px-2.5 py-1 text-[11.5px] font-semibold ${status.className}`}>
+            {status.label}
+          </span>
+        }
+      />
+      <div className="space-y-4 p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-d-edge bg-d-raised px-4 py-3.5">
+          <div className="max-w-[440px]">
+            <p className="text-[13px] font-medium text-d-ink">Accept production payments</p>
+            <p className="mt-0.5 text-[11.5px] leading-[1.5] text-d-muted">
+              {enabled
+                ? `This workspace is opted in to production.${since}`
+                : "Enable to be ready the moment mainnet support ships."}
+            </p>
+          </div>
+          <Toggle
+            on={enabled}
+            disabled={!eligible || setProduction.isPending}
+            onChange={(next) => {
+              setError("");
+              setProduction.mutate(next);
+            }}
+            label="Production payments"
+          />
+        </div>
+
+        {!ready && (
+          <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-[12.5px] leading-[1.55] text-amber-600">
+            Mainnet support is rolling out. Turning this on records your workspace&apos;s intent —
+            production keys and payments activate automatically once it ships. Sandbox is fully
+            functional today.
+          </p>
+        )}
+
+        {!eligible && (
+          <div className="rounded-lg border border-dashed border-d-edge px-4 py-3 text-[12.5px] text-d-muted">
+            <p className="font-medium text-d-ink">Complete setup to go live</p>
+            <ul className="mt-1.5 space-y-1">
+              {checks.map((c) => (
+                <li key={c.label} className="flex items-center gap-2">
+                  <span className={c.done ? "text-d-success" : "text-d-muted"}>
+                    {c.done ? "✓" : "•"}
+                  </span>
+                  {c.label}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {error && <p className="text-[12.5px] font-medium text-d-failed">{error}</p>}
+      </div>
+    </Card>
+  );
 }
 
 export default function SettingsPage() {
@@ -290,6 +500,8 @@ function SettingsForm({
           </div>
         </Card>
 
+        <GoLiveCard initial={initial} />
+
         <Card>
           <CardHeader
             title="Networks & assets"
@@ -425,6 +637,11 @@ function SettingsForm({
             )}
           </div>
         </Card>
+
+        <SettlementCard
+          rows={initial.settlement ?? []}
+          adminConfigured={initial.settlementAdminConfigured ?? false}
+        />
 
         <CheckoutAppearanceEditor initial={initial.checkoutAppearance ?? null} />
 

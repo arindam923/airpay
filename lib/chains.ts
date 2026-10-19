@@ -15,6 +15,8 @@ export interface TestnetInfo {
   /** Env var that can override the default RPC. */
   rpcEnv: string;
   defaultRpc: string;
+  /** Env var holding the deployed AirPaySettlement address for this chain. */
+  settlementEnv: string;
   /** Circle-issued USDC on this testnet (6 decimals). */
   usdc: `0x${string}`;
   nativeSymbol: string;
@@ -32,6 +34,7 @@ export const TESTNETS: Record<TestnetKey, TestnetInfo> = {
     viemChain: baseSepolia,
     rpcEnv: "RPC_BASE_SEPOLIA",
     defaultRpc: "https://sepolia.base.org",
+    settlementEnv: "SETTLEMENT_BASE_SEPOLIA",
     usdc: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
     nativeSymbol: "ETH",
     explorerTx: (hash) => `https://sepolia.basescan.org/tx/${hash}`,
@@ -45,6 +48,7 @@ export const TESTNETS: Record<TestnetKey, TestnetInfo> = {
     viemChain: sepolia,
     rpcEnv: "RPC_ETHEREUM_SEPOLIA",
     defaultRpc: "https://ethereum-sepolia-rpc.publicnode.com",
+    settlementEnv: "SETTLEMENT_ETHEREUM_SEPOLIA",
     usdc: "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
     nativeSymbol: "ETH",
     explorerTx: (hash) => `https://sepolia.etherscan.io/tx/${hash}`,
@@ -58,6 +62,7 @@ export const TESTNETS: Record<TestnetKey, TestnetInfo> = {
     viemChain: arbitrumSepolia,
     rpcEnv: "RPC_ARBITRUM_SEPOLIA",
     defaultRpc: "https://sepolia-rollup.arbitrum.io/rpc",
+    settlementEnv: "SETTLEMENT_ARBITRUM_SEPOLIA",
     usdc: "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d",
     nativeSymbol: "ETH",
     explorerTx: (hash) => `https://sepolia.arbiscan.io/tx/${hash}`,
@@ -71,6 +76,7 @@ export const TESTNETS: Record<TestnetKey, TestnetInfo> = {
     viemChain: optimismSepolia,
     rpcEnv: "RPC_OPTIMISM_SEPOLIA",
     defaultRpc: "https://sepolia.optimism.io",
+    settlementEnv: "SETTLEMENT_OPTIMISM_SEPOLIA",
     usdc: "0x5fd84259d66Cd46123540766Be93DFE6D43130D7",
     nativeSymbol: "ETH",
     explorerTx: (hash) => `https://sepolia-optimism.etherscan.io/tx/${hash}`,
@@ -84,6 +90,7 @@ export const TESTNETS: Record<TestnetKey, TestnetInfo> = {
     viemChain: polygonAmoy,
     rpcEnv: "RPC_POLYGON_AMOY",
     defaultRpc: "https://polygon-amoy-bor-rpc.publicnode.com",
+    settlementEnv: "SETTLEMENT_POLYGON_AMOY",
     usdc: "0x41E94Eb019C0762f9Bfcf9Fb1E58725BfB0e7582",
     nativeSymbol: "POL",
     explorerTx: (hash) => `https://amoy.polygonscan.com/tx/${hash}`,
@@ -111,4 +118,20 @@ export function testnetByKey(key: string): TestnetInfo | null {
 export function rpcUrl(info: TestnetInfo): string {
   const override = process.env[info.rpcEnv];
   return override && override.trim() !== "" ? override.trim() : info.defaultRpc;
+}
+
+/**
+ * Deployed AirPaySettlement address for a chain, or null when it isn't
+ * configured. Server-side only: the hosted checkout receives the contract
+ * address via the payment intent's `receiver` snapshot instead of reading env.
+ */
+export function settlementAddress(info: TestnetInfo): `0x${string}` | null {
+  const raw = process.env[info.settlementEnv]?.trim();
+  return raw && /^0x[0-9a-fA-F]{40}$/.test(raw) ? (raw as `0x${string}`) : null;
+}
+
+/** Chain-key convenience wrapper around {@link settlementAddress}. */
+export function settlementByKey(key: string): `0x${string}` | null {
+  const info = testnetByKey(key);
+  return info ? settlementAddress(info) : null;
 }

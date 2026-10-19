@@ -58,7 +58,7 @@ export const invoicesRouter = {
   }),
 
   create: onboarded.input(createInvoiceSchema).handler(async ({ input, context }) => {
-    assertEnvironmentEnabled(context.environment);
+    await assertEnvironmentEnabled(context.environment, context.organizationId);
     const db = await getDb();
     const settingsRows = await db
       .select()

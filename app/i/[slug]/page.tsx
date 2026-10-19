@@ -3,6 +3,7 @@ import Link from "next/link";
 import HostedCheckout from "@/components/pay/HostedCheckout";
 import { getInvoiceBySlug, listInvoiceItems, toPublicInvoice } from "@/lib/invoices";
 import { getCheckoutAppearance } from "@/lib/checkout-appearance.server";
+import { settlementAddress, testnetByKey } from "@/lib/chains";
 import type { PublicLink } from "@/lib/links";
 
 // The invoice lookup reads the database per request, so this route renders on
@@ -58,6 +59,10 @@ export default async function InvoicePage({ params }: PageProps<"/i/[slug]">) {
   const invoice = toPublicInvoice(row, await listInvoiceItems(row.id));
   const appearance = await getCheckoutAppearance(row.organizationId);
   const receiver = row.receiver || process.env.RECEIVER_ADDRESS || "";
+  const info = testnetByKey(row.chain_key);
+  const contract = info ? settlementAddress(info) : null;
+  const settlementContract =
+    contract && receiver.toLowerCase() === contract.toLowerCase() ? contract : null;
 
   const link: PublicLink = {
     id: row.id,
@@ -85,6 +90,7 @@ export default async function InvoicePage({ params }: PageProps<"/i/[slug]">) {
       invoice={invoice}
       invoiceId={row.id}
       appearance={appearance}
+      settlementContract={settlementContract}
     />
   );
 }

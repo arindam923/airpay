@@ -13,7 +13,7 @@ export const paymentsRouter = {
   create: onboarded
     .input(createIntentSchema)
     .handler(async ({ input, context }) => {
-      assertEnvironmentEnabled(context.environment);
+      await assertEnvironmentEnabled(context.environment, context.organizationId);
       try {
         const intent = await createIntent({
           organizationId: context.organizationId!,

@@ -62,6 +62,9 @@ export const updateSettingsSchema = z
 
 export type UpdateSettingsInput = z.infer<typeof updateSettingsSchema>;
 
+/** Dashboard "Go live" switch — opt the workspace into production (mainnet). */
+export const setProductionSchema = z.object({ enabled: z.boolean() });
+
 const optionalEmail = z.union([z.literal(""), z.email().max(200)]).default("");
 
 /**

@@ -1,0 +1,1036 @@
+openapi: 3.1.0
+info:
+  title: AirPay API
+  version: 2026-10-19
+  description: |
+    The AirPay REST API accepts crypto payments and settles them to a merchant's
+    wallet. It is organised around two core resources:
+
+    - **Payment Intents** track a single payment from creation to settlement.
+      Use them for headless integrations where you build the payment UI yourself.
+    - **Checkout Sessions** wrap a Payment Intent in an AirPay-hosted payment
+      page that you redirect the customer to.
+
+    ## Amounts
+    All monetary amounts are integers in the **smallest currency unit** (for
+    `usd`, cents). `amount: 1250` is `$12.50`.
+
+    ## Authentication
+    Every request must carry an API key as a bearer token. Two kinds exist:
+
+    - **Secret keys** (`ap_test_…`, `ap_live_…`) are server-only and can read
+      and write every resource in the workspace.
+    - **Publishable keys** (`pk_test_…`, `pk_live_…`) are browser-safe and may
+      only read account/config data and read or confirm a single payment intent
+      when its `client_secret` is also supplied.
+
+    The key's prefix pins the environment: a `*_test_*` key can never touch
+    production data and vice-versa.
+
+    ## Environments
+    Sandbox traffic runs on public testnets and is always available. Production
+    (`livemode: true`) requires the workspace to be enabled for live mode.
+
+    ## Webhooks
+    AirPay signs every delivery with an `Airpay-Signature` header of the form
+    `t=<unix seconds>,v1=<hex HMAC-SHA256(secret, "t.<raw body>")>`. Verify it
+    against the endpoint's signing secret before trusting the payload, and
+    reject events whose timestamp is too old to prevent replays.
+  contact:
+    name: AirPay Developers
+    url: https://airpay.dev/docs
+  license:
+    name: MIT
+    identifier: MIT
+
+servers:
+  - url: https://api.airpay.dev
+    description: Production
+  - url: https://sandbox-api.airpay.dev
+    description: Sandbox
+
+tags:
+  - name: Account
+    description: Inspect the authenticated workspace and key.
+  - name: Config
+    description: Discover the chains and tokens enabled for the workspace.
+  - name: Payment Intents
+    description: Create and manage individual payments.
+  - name: Checkout Sessions
+    description: Create hosted payment pages to redirect customers to.
+
+security:
+  - SecretKey: []
+
+paths:
+  /v1/account:
+    get:
+      tags: [Account]
+      operationId: getAccount
+      summary: Retrieve the authenticated account
+      description: Returns the workspace and API key that the request authenticated as.
+      security:
+        - SecretKey: []
+        - PublishableKey: []
+      responses:
+        "200":
+          description: The account object.
+          headers:
+            Airpay-Version:
+              $ref: "#/components/headers/AirpayVersion"
+            Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Account"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /v1/config:
+    get:
+      tags: [Config]
+      operationId: getConfig
+      summary: Retrieve enabled chains and tokens
+      description: |
+        Lists the (chain, token) pairs enabled for the workspace, including the
+        settlement contract address and token decimals. Clients use this to
+        decide which assets to offer.
+      security:
+        - SecretKey: []
+        - PublishableKey: []
+      responses:
+        "200":
+          description: The config object.
+          headers:
+            Airpay-Version:
+              $ref: "#/components/headers/AirpayVersion"
+            Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Config"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /v1/payment_intents:
+    post:
+      tags: [Payment Intents]
+      operationId: createPaymentIntent
+      summary: Create a payment intent
+      description: |
+        Creates a payment intent in `requires_payment`. The response includes a
+        `client_secret` that a browser can use with a publishable key to read
+        and confirm the intent.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PaymentIntentCreateParams"
+      responses:
+        "201":
+          description: The created payment intent.
+          headers:
+            Airpay-Version:
+              $ref: "#/components/headers/AirpayVersion"
+            Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentIntent"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    get:
+      tags: [Payment Intents]
+      operationId: listPaymentIntents
+      summary: List payment intents
+      description: Returns payment intents for the workspace, newest first.
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/StartingAfter"
+      responses:
+        "200":
+          description: A paginated list of payment intents.
+          headers:
+            Airpay-Version:
+              $ref: "#/components/headers/AirpayVersion"
+            Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentIntentList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /v1/payment_intents/{intent_id}:
+    parameters:
+      - $ref: "#/components/parameters/PaymentIntentId"
+    get:
+      tags: [Payment Intents]
+      operationId: getPaymentIntent
+      summary: Retrieve a payment intent
+      description: |
+        Retrieves a payment intent. Publishable keys may retrieve an intent only
+        when the matching `Airpay-Client-Secret` header (or `client_secret` in
+        the path body) is supplied.
+      parameters:
+        - $ref: "#/components/parameters/ClientSecretHeader"
+      security:
+        - SecretKey: []
+        - PublishableKey: []
+      responses:
+        "200":
+          description: The payment intent.
+          headers:
+            Airpay-Version:
+              $ref: "#/components/headers/AirpayVersion"
+            Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentIntent"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v1/payment_intents/{intent_id}/confirm:
+    parameters:
+      - $ref: "#/components/parameters/PaymentIntentId"
+    post:
+      tags: [Payment Intents]
+      operationId: confirmPaymentIntent
+      summary: Confirm a payment intent
+      description: |
+        Attaches an on-chain transaction hash to the intent. The workspace
+        watcher then verifies the transfer and, once it reaches the required
+        confirmations, marks the intent `succeeded`.
+      parameters:
+        - $ref: "#/components/parameters/ClientSecretHeader"
+      security:
+        - SecretKey: []
+        - PublishableKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tx_hash]
+              properties:
+                tx_hash:
+                  type: string
+                  pattern: "^0x[0-9a-fA-F]{64}$"
+                  description: The 32-byte hash of the transaction that pays the intent.
+                payer:
+                  type: string
+                  pattern: "^0x[0-9a-fA-F]{40}$"
+                  description: The address that sent the payment.
+                client_secret:
+                  type: string
+                  description: Required when authenticating with a publishable key.
+      responses:
+        "200":
+          description: The updated payment intent.
+          headers:
+            Airpay-Version:
+              $ref: "#/components/headers/AirpayVersion"
+            Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentIntent"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v1/payment_intents/{intent_id}/cancel:
+    parameters:
+      - $ref: "#/components/parameters/PaymentIntentId"
+    post:
+      tags: [Payment Intents]
+      operationId: cancelPaymentIntent
+      summary: Cancel a payment intent
+      description: |
+        Cancels an intent that has not yet reached a terminal state. Requires a
+        secret key.
+      responses:
+        "200":
+          description: The cancelled payment intent.
+          headers:
+            Airpay-Version:
+              $ref: "#/components/headers/AirpayVersion"
+            Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentIntent"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /v1/checkout/sessions:
+    post:
+      tags: [Checkout Sessions]
+      operationId: createCheckoutSession
+      summary: Create a checkout session
+      description: |
+        Creates a payment intent plus a hosted payment page. Redirect the
+        customer to the returned `url` to collect payment.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CheckoutSessionCreateParams"
+      responses:
+        "201":
+          description: The created checkout session.
+          headers:
+            Airpay-Version:
+              $ref: "#/components/headers/AirpayVersion"
+            Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckoutSession"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    get:
+      tags: [Checkout Sessions]
+      operationId: listCheckoutSessions
+      summary: List checkout sessions
+      description: Returns checkout sessions for the workspace, newest first.
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/StartingAfter"
+      responses:
+        "200":
+          description: A paginated list of checkout sessions.
+          headers:
+            Airpay-Version:
+              $ref: "#/components/headers/AirpayVersion"
+            Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckoutSessionList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /v1/checkout/sessions/{session_id}:
+    parameters:
+      - $ref: "#/components/parameters/CheckoutSessionId"
+    get:
+      tags: [Checkout Sessions]
+      operationId: getCheckoutSession
+      summary: Retrieve a checkout session
+      responses:
+        "200":
+          description: The checkout session.
+          headers:
+            Airpay-Version:
+              $ref: "#/components/headers/AirpayVersion"
+            Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckoutSession"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v1/checkout/sessions/{session_id}/expire:
+    parameters:
+      - $ref: "#/components/parameters/CheckoutSessionId"
+    post:
+      tags: [Checkout Sessions]
+      operationId: expireCheckoutSession
+      summary: Expire a checkout session
+      description: Expires an open session so its hosted page can no longer be paid.
+      responses:
+        "200":
+          description: The expired checkout session.
+          headers:
+            Airpay-Version:
+              $ref: "#/components/headers/AirpayVersion"
+            Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckoutSession"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+webhooks:
+  payment.created:
+    post:
+      operationId: paymentCreated
+      summary: Payment created
+      description: Sent when a payment intent or checkout session is created.
+      requestBody:
+        $ref: "#/components/requestBodies/WebhookEvent"
+      responses:
+        "2XX":
+          description: Acknowledge receipt to stop retries.
+  payment.submitted:
+    post:
+      operationId: paymentSubmitted
+      summary: Payment submitted
+      description: Sent when a payer broadcasts the payment transaction.
+      requestBody:
+        $ref: "#/components/requestBodies/WebhookEvent"
+      responses:
+        "2XX":
+          description: Acknowledge receipt to stop retries.
+  payment.confirmed:
+    post:
+      operationId: paymentConfirmed
+      summary: Payment confirmed
+      description: Sent when a payment reaches the required confirmations.
+      requestBody:
+        $ref: "#/components/requestBodies/WebhookEvent"
+      responses:
+        "2XX":
+          description: Acknowledge receipt to stop retries.
+  payment.failed:
+    post:
+      operationId: paymentFailed
+      summary: Payment failed
+      description: Sent when a payment fails or is cancelled.
+      requestBody:
+        $ref: "#/components/requestBodies/WebhookEvent"
+      responses:
+        "2XX":
+          description: Acknowledge receipt to stop retries.
+  payment.expired:
+    post:
+      operationId: paymentExpired
+      summary: Payment expired
+      description: Sent when an unpaid payment intent expires.
+      requestBody:
+        $ref: "#/components/requestBodies/WebhookEvent"
+      responses:
+        "2XX":
+          description: Acknowledge receipt to stop retries.
+  checkout.session.completed:
+    post:
+      operationId: checkoutSessionCompleted
+      summary: Checkout session completed
+      description: Sent when the intent behind a checkout session is paid.
+      requestBody:
+        $ref: "#/components/requestBodies/WebhookEvent"
+      responses:
+        "2XX":
+          description: Acknowledge receipt to stop retries.
+  checkout.session.expired:
+    post:
+      operationId: checkoutSessionExpired
+      summary: Checkout session expired
+      description: Sent when a checkout session expires without payment.
+      requestBody:
+        $ref: "#/components/requestBodies/WebhookEvent"
+      responses:
+        "2XX":
+          description: Acknowledge receipt to stop retries.
+
+components:
+  securitySchemes:
+    SecretKey:
+      type: http
+      scheme: bearer
+      description: >
+        Server-side secret key (`ap_test_…` / `ap_live_…`). Grants full access to
+        the workspace in the key's environment.
+    PublishableKey:
+      type: http
+      scheme: bearer
+      description: >
+        Browser-safe publishable key (`pk_test_…` / `pk_live_…`). Limited to
+        reading account/config data and reading or confirming a payment intent
+        that a `client_secret` authorises.
+
+  headers:
+    AirpayVersion:
+      description: The API version that served the request.
+      schema:
+        type: string
+        example: "2026-10-19"
+    RequestId:
+      description: Unique identifier for the request, useful when contacting support.
+      schema:
+        type: string
+        example: req_2f1c9b6a4e7d
+
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: >
+        A unique value (e.g. a UUID) that makes write requests safe to retry.
+        Reusing a key replays the original response; reusing it with a different
+        body returns `409 idempotency_error`.
+      schema:
+        type: string
+        maxLength: 255
+    ClientSecretHeader:
+      name: Airpay-Client-Secret
+      in: header
+      required: false
+      description: The payment intent's `client_secret`. Required for publishable-key access.
+      schema:
+        type: string
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: Number of objects to return, 1–100. Defaults to 10.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 10
+    StartingAfter:
+      name: starting_after
+      in: query
+      required: false
+      description: Object ID cursor. Returns objects created after this one.
+      schema:
+        type: string
+    PaymentIntentId:
+      name: intent_id
+      in: path
+      required: true
+      description: The payment intent ID (`pi_…`).
+      schema:
+        type: string
+    CheckoutSessionId:
+      name: session_id
+      in: path
+      required: true
+      description: The checkout session ID (`cs_…`).
+      schema:
+        type: string
+
+  requestBodies:
+    WebhookEvent:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/WebhookEvent"
+
+  responses:
+    BadRequest:
+      description: The request was malformed or failed validation.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: Missing or invalid API key.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Forbidden:
+      description: The key is valid but lacks permission for this operation.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: No such resource.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Conflict:
+      description: The request conflicts with the current state (e.g. replayed idempotency key, non-cancelable intent).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    TooManyRequests:
+      description: Rate limit exceeded.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+  schemas:
+    ErrorType:
+      type: string
+      enum:
+        - invalid_request_error
+        - authentication_error
+        - permission_error
+        - rate_limit_error
+        - idempotency_error
+        - api_error
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [type, code, message]
+          properties:
+            type:
+              $ref: "#/components/schemas/ErrorType"
+            code:
+              type: string
+              example: invalid_request
+            message:
+              type: string
+              example: "`amount` must be a positive integer."
+            param:
+              type: string
+              description: The parameter that caused the error, when applicable.
+
+    Account:
+      type: object
+      required:
+        [object, id, workspace_name, environment, livemode, key, capabilities]
+      properties:
+        object:
+          type: string
+          const: account
+        id:
+          type: string
+          description: The organization ID.
+        workspace_name:
+          type: string
+        environment:
+          $ref: "#/components/schemas/Environment"
+        livemode:
+          type: boolean
+        key:
+          type: object
+          required: [id, kind, scope]
+          properties:
+            id:
+              type: string
+            kind:
+              type: string
+              enum: [secret, publishable]
+            scope:
+              type: string
+              enum: [full, readonly, publishable]
+        capabilities:
+          type: object
+          required: [sandbox, production]
+          properties:
+            sandbox:
+              type: boolean
+            production:
+              type: boolean
+              description: Whether live mode is enabled for this workspace.
+
+    Config:
+      type: object
+      required: [object, environment, livemode, chains]
+      properties:
+        object:
+          type: string
+          const: config
+        environment:
+          $ref: "#/components/schemas/Environment"
+        livemode:
+          type: boolean
+        chains:
+          type: array
+          items:
+            $ref: "#/components/schemas/Chain"
+
+    Chain:
+      type: object
+      required: [key, name, chain_id, native_symbol, settlement_address, tokens]
+      properties:
+        key:
+          type: string
+          example: base
+        name:
+          type: string
+          example: Base
+        chain_id:
+          type: integer
+          example: 84532
+        native_symbol:
+          type: string
+          example: ETH
+        settlement_address:
+          type: string
+          description: The AirPay settlement contract, or a zero address when unset.
+        tokens:
+          type: array
+          items:
+            $ref: "#/components/schemas/TokenInfo"
+
+    TokenInfo:
+      type: object
+      required: [symbol, decimals]
+      properties:
+        symbol:
+          $ref: "#/components/schemas/TokenSymbol"
+        decimals:
+          type: integer
+          example: 6
+
+    Environment:
+      type: string
+      enum: [sandbox, production]
+      description: Sandbox keys target testnets; production keys target mainnets.
+
+    TokenSymbol:
+      type: string
+      enum: [USDC, ETH]
+
+    PaymentIntentStatus:
+      type: string
+      enum:
+        - requires_payment
+        - processing
+        - succeeded
+        - canceled
+        - expired
+
+    PaymentIntent:
+      type: object
+      required:
+        - id
+        - object
+        - created
+        - status
+        - amount
+        - currency
+        - chain
+        - token
+        - expected_units
+        - receiver
+        - metadata
+        - confirmations
+        - required_confirmations
+        - expires_at
+        - environment
+        - livemode
+      properties:
+        id:
+          type: string
+          example: pi_3f9a1c2b4d5e
+        object:
+          type: string
+          const: payment_intent
+        created:
+          type: integer
+          description: Unix timestamp in seconds.
+        status:
+          $ref: "#/components/schemas/PaymentIntentStatus"
+        amount:
+          type: integer
+          description: Amount in minor units (cents).
+        currency:
+          type: string
+          const: usd
+        chain:
+          type: string
+          example: base
+        token:
+          $ref: "#/components/schemas/TokenSymbol"
+        expected_units:
+          type: string
+          description: Amount owed in the token's base units (stringified integer).
+        receiver:
+          type: string
+          description: Address that receives the payment.
+        client_secret:
+          type: string
+          description: >
+            Present only in the create response. Required by publishable keys to
+            read or confirm the intent.
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+        payer:
+          type: [string, "null"]
+        tx_hash:
+          type: [string, "null"]
+        confirmations:
+          type: integer
+        required_confirmations:
+          type: integer
+        invoice_id:
+          type: [string, "null"]
+        expires_at:
+          type: integer
+        confirmed_at:
+          type: [integer, "null"]
+        last_payment_error:
+          type: [object, "null"]
+          properties:
+            message:
+              type: string
+        environment:
+          $ref: "#/components/schemas/Environment"
+        livemode:
+          type: boolean
+
+    PaymentIntentList:
+      type: object
+      required: [object, url, has_more, data]
+      properties:
+        object:
+          type: string
+          const: list
+        url:
+          type: string
+          const: /v1/payment_intents
+        has_more:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/PaymentIntent"
+
+    PaymentIntentCreateParams:
+      type: object
+      required: [amount, chain]
+      properties:
+        amount:
+          type: integer
+          minimum: 1
+          description: Amount in minor units (cents).
+          example: 1250
+        currency:
+          type: string
+          const: usd
+          default: usd
+        chain:
+          type: string
+          description: Chain key or display name, e.g. `base` or `Base`.
+          example: base
+        token:
+          $ref: "#/components/schemas/TokenSymbol"
+        title:
+          type: string
+          maxLength: 200
+        merchant:
+          type: string
+          maxLength: 200
+        description:
+          type: string
+          maxLength: 500
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+        receiver:
+          type: string
+          pattern: "^0x[0-9a-fA-F]{40}$"
+          description: Override the settlement receiver address.
+
+    CheckoutSessionStatus:
+      type: string
+      enum: [open, complete, expired]
+
+    CheckoutSession:
+      type: object
+      required:
+        - id
+        - object
+        - status
+        - url
+        - payment_intent
+        - metadata
+        - created
+        - expires_at
+        - environment
+        - livemode
+      properties:
+        id:
+          type: string
+          example: cs_7b6a5c4d3e2f
+        object:
+          type: string
+          const: checkout.session
+        status:
+          $ref: "#/components/schemas/CheckoutSessionStatus"
+        url:
+          type: string
+          format: uri
+          description: The hosted payment page to redirect the customer to.
+        payment_intent:
+          type: string
+          description: ID of the payment intent backing this session.
+        success_url:
+          type: [string, "null"]
+        cancel_url:
+          type: [string, "null"]
+        client_reference_id:
+          type: [string, "null"]
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+        created:
+          type: integer
+        expires_at:
+          type: integer
+        completed_at:
+          type: [integer, "null"]
+        environment:
+          $ref: "#/components/schemas/Environment"
+        livemode:
+          type: boolean
+
+    CheckoutSessionList:
+      type: object
+      required: [object, url, has_more, data]
+      properties:
+        object:
+          type: string
+          const: list
+        url:
+          type: string
+          const: /v1/checkout/sessions
+        has_more:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/CheckoutSession"
+
+    CheckoutSessionCreateParams:
+      type: object
+      required: [amount, chain]
+      properties:
+        amount:
+          type: integer
+          minimum: 1
+          description: Amount in minor units (cents).
+          example: 1250
+        currency:
+          type: string
+          const: usd
+          default: usd
+        chain:
+          type: string
+          example: base
+        token:
+          $ref: "#/components/schemas/TokenSymbol"
+        success_url:
+          type: string
+          format: uri
+        cancel_url:
+          type: string
+          format: uri
+        client_reference_id:
+          type: string
+          maxLength: 200
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+        title:
+          type: string
+          maxLength: 200
+        merchant:
+          type: string
+          maxLength: 200
+
+    WebhookEvent:
+      type: object
+      required: [id, type, createdAt, environment, data]
+      properties:
+        id:
+          type: string
+          example: evt_1a2b3c4d5e6f7a8b
+        type:
+          $ref: "#/components/schemas/WebhookEventType"
+        createdAt:
+          type: integer
+          description: Unix timestamp in milliseconds.
+        environment:
+          $ref: "#/components/schemas/Environment"
+        data:
+          type: object
+          additionalProperties: true
+
+    WebhookEventType:
+      type: string
+      enum:
+        - payment.created
+        - payment.submitted
+        - payment.confirmed
+        - payment.failed
+        - payment.expired
+        - checkout.session.completed
+        - checkout.session.expired
+        - invoice.created
+        - invoice.sent
+        - invoice.viewed
+        - invoice.paid
+        - invoice.void
+        - link.created
+        - link.revoked

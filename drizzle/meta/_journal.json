@@ -15,6 +15,34 @@
       "when": 1792338715658,
       "tag": "0001_green_shard",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792340476278,
+      "tag": "0002_brave_microchip",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1792384423211,
+      "tag": "0003_settlement_contract",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792389631586,
+      "tag": "0004_glorious_red_skull",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792389700551,
+      "tag": "0005_steep_penance",
+      "breakpoints": true
     }
   ]
 }

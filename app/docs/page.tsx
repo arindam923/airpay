@@ -13,11 +13,11 @@ const curlLines: Seg[][] = [
   [
     { t: "curl ", c: "text-violet" },
     { t: "-X POST ", c: "text-cream" },
-    { t: "https://api.airpay.dev/v1/payments", c: "text-mint" },
+    { t: "https://api.airpay.dev/v1/checkout_sessions", c: "text-mint" },
   ],
   [
     { t: "  -H ", c: "text-cream" },
-    { t: '"Authorization: Bearer ap_live_…"', c: "text-sun" },
+    { t: '"Authorization: Bearer ap_test_…"', c: "text-sun" },
   ],
   [
     { t: "  -H ", c: "text-cream" },
@@ -25,23 +25,48 @@ const curlLines: Seg[][] = [
   ],
   [
     { t: "  -d ", c: "text-cream" },
-    { t: "'{\"amount\":125000,\"currency\":\"usdc\",\"chain\":\"base\"}'", c: "text-mint" },
+    {
+      t: '\'{"amount":1250,"chain":"base","token":"USDC","success_url":"https://shop.dev/ok"}\'',
+      c: "text-mint",
+    },
   ],
 ];
 
 const endpoints = [
-  { method: "POST", path: "/v1/payments", desc: "Create a payment or hosted paylink." },
-  { method: "GET", path: "/v1/payments/:id", desc: "Retrieve a payment and its confirmations." },
-  { method: "GET", path: "/v1/payments", desc: "List payments with cursor pagination." },
-  { method: "POST", path: "/v1/payouts", desc: "Settle balances to a treasury wallet." },
-  { method: "POST", path: "/v1/webhooks", desc: "Register an event delivery endpoint." },
-  { method: "GET", path: "/v1/customers", desc: "List customers aggregated across chains." },
+  { method: "GET", path: "/v1/account", desc: "Retrieve the authenticated account and key." },
+  { method: "GET", path: "/v1/config", desc: "Enabled chains, tokens, and settlement addresses." },
+  { method: "POST", path: "/v1/payment_intents", desc: "Create a headless payment intent." },
+  { method: "GET", path: "/v1/payment_intents", desc: "List payment intents with cursor pagination." },
+  { method: "GET", path: "/v1/payment_intents/:id", desc: "Retrieve a payment intent." },
+  { method: "POST", path: "/v1/payment_intents/:id/confirm", desc: "Attach a transaction hash." },
+  { method: "POST", path: "/v1/payment_intents/:id/cancel", desc: "Cancel an open payment intent." },
+  { method: "POST", path: "/v1/checkout_sessions", desc: "Create a hosted checkout session." },
+  { method: "GET", path: "/v1/checkout_sessions", desc: "List checkout sessions." },
+  { method: "GET", path: "/v1/checkout_sessions/:id", desc: "Retrieve a checkout session." },
+  { method: "POST", path: "/v1/checkout_sessions/:id/expire", desc: "Expire a checkout session." },
 ];
 
 const methodStyle: Record<string, string> = {
   POST: "bg-mint text-ink",
   GET: "bg-sky text-ink",
 };
+
+const sdks = [
+  { name: "TypeScript", pkg: "npm i @airpay/sdk", color: "bg-violet text-cream" },
+  { name: "Browser JS", pkg: "npm i @airpay/js", color: "bg-sky text-ink" },
+  { name: "Python", pkg: "pip install airpay", color: "bg-sun text-ink" },
+  { name: "Go", pkg: "go get airpay.dev/go", color: "bg-mint text-ink" },
+  { name: "PHP", pkg: "composer require airpay/airpay", color: "bg-coral text-cream" },
+];
+
+const webhookEvents: [string, string][] = [
+  ["payment.confirmed", "A payment reached your confirmation threshold."],
+  ["payment.failed", "A payment expired or failed on-chain."],
+  ["checkout.session.completed", "A hosted checkout finished successfully."],
+  ["invoice.paid", "An invoice was paid in full."],
+  ["link.created", "A payment link went live."],
+  ["webhook.test", "Sent when you add or test an endpoint."],
+];
 
 export default function DocsPage() {
   return (
@@ -81,9 +106,35 @@ export default function DocsPage() {
         <section className="mt-16">
           <h2 className="font-sans text-[28px] font-medium tracking-[-0.02em]">Quick start</h2>
           <p className="mt-3 max-w-[60ch] text-[15px] leading-[1.6] text-ink/70">
-            Create a live key in the dashboard, then create your first payment.
-            Amounts are in the currency&apos;s smallest unit (cents for USD
-            stablecoins).
+            Create a key in the dashboard, then create your first checkout
+            session. Amounts are in the currency&apos;s smallest unit — cents for
+            USD stablecoins.
+          </p>
+          <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="rounded-[16px] border-2 border-ink/10 bg-cream px-5 py-4">
+              <code className="font-mono text-[13px] font-semibold text-violet">Secret keys</code>
+              <p className="mt-1.5 text-[13.5px] leading-[1.55] text-ink/70">
+                <code className="font-mono text-[13px]">ap_test_…</code> /{" "}
+                <code className="font-mono text-[13px]">ap_live_…</code>. Server-side only, full
+                workspace access.
+              </p>
+            </div>
+            <div className="rounded-[16px] border-2 border-ink/10 bg-cream px-5 py-4">
+              <code className="font-mono text-[13px] font-semibold text-violet">
+                Publishable keys
+              </code>
+              <p className="mt-1.5 text-[13.5px] leading-[1.55] text-ink/70">
+                <code className="font-mono text-[13px]">pk_test_…</code> /{" "}
+                <code className="font-mono text-[13px]">pk_live_…</code>. Safe in browsers; read
+                config and confirm intents.
+              </p>
+            </div>
+          </div>
+          <p className="mt-4 max-w-[60ch] text-[13.5px] leading-[1.6] text-ink/60">
+            Send requests to <code className="font-mono text-[13px]">https://api.airpay.dev</code>{" "}
+            with an <code className="font-mono text-[13px]">Authorization: Bearer</code> header.
+            Add an <code className="font-mono text-[13px]">Idempotency-Key</code> to safely retry
+            creates.
           </p>
           <div className="mt-6 overflow-hidden rounded-[20px] border-2 border-ink bg-ink shadow-[6px_6px_0_var(--color-ink)]">
             <div className="flex items-center gap-2 border-b border-cream/10 px-5 py-3.5">
@@ -115,7 +166,7 @@ export default function DocsPage() {
           <div className="mt-6 overflow-hidden rounded-[20px] border-2 border-ink bg-cream shadow-[6px_6px_0_var(--color-ink)]">
             {endpoints.map((e) => (
               <div
-                key={e.path}
+                key={`${e.method} ${e.path}`}
                 className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b-2 border-ink/10 px-6 py-4 last:border-0"
               >
                 <span
@@ -131,19 +182,12 @@ export default function DocsPage() {
         </section>
 
         <section id="sdks" className="mt-16">
-          <h2 className="font-sans text-[28px] font-medium tracking-[-0.02em]">SDKs & modules</h2>
+          <h2 className="font-sans text-[28px] font-medium tracking-[-0.02em]">SDKs & libraries</h2>
           <p className="mt-3 max-w-[60ch] text-[15px] leading-[1.6] text-ink/70">
-            Official client libraries, generated from the same OpenAPI spec.
+            Official client libraries, hand-written against the same OpenAPI spec.
           </p>
           <div className="mt-6 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            {[
-              { name: "TypeScript", pkg: "npm i @airpay/sdk", color: "bg-violet text-cream" },
-              { name: "Python", pkg: "pip install airpay", color: "bg-sun text-ink" },
-              { name: "Go", pkg: "go get airpay.dev/go", color: "bg-mint text-ink" },
-              { name: "Ruby", pkg: "gem install airpay", color: "bg-coral text-cream" },
-              { name: "PHP", pkg: "composer require airpay", color: "bg-sky text-ink" },
-              { name: "Rust", pkg: "cargo add airpay", color: "bg-ink text-cream" },
-            ].map((sdk) => (
+            {sdks.map((sdk) => (
               <div
                 key={sdk.name}
                 className="rounded-[20px] border-2 border-ink bg-cream p-6 shadow-[4px_4px_0_var(--color-ink)] transition-transform hover:-translate-y-1"
@@ -164,21 +208,23 @@ export default function DocsPage() {
 
         <section className="mt-16">
           <h2 className="font-sans text-[28px] font-medium tracking-[-0.02em]">Webhooks</h2>
-          <p className="mt-3 max-w-[60ch] text-[15px] leading-[1.6] text-ink/70">
-            AirPay signs every delivery with HMAC-SHA256. Verify the{" "}
+          <p className="mt-3 max-w-[68ch] text-[15px] leading-[1.6] text-ink/70">
+            AirPay signs every delivery with HMAC-SHA256. The{" "}
             <code className="rounded bg-ink/8 px-1.5 py-0.5 font-mono text-[13px]">
               AirPay-Signature
             </code>{" "}
-            header before processing an event. Failed deliveries retry with
-            exponential backoff for 24 hours.
+            header looks like{" "}
+            <code className="rounded bg-ink/8 px-1.5 py-0.5 font-mono text-[13px]">
+              t=1699999999,v1=…
+            </code>
+            . Compute the HMAC over{" "}
+            <code className="rounded bg-ink/8 px-1.5 py-0.5 font-mono text-[13px]">
+              &lt;t&gt;.&lt;raw body&gt;
+            </code>{" "}
+            and compare in constant time. Failed deliveries retry with exponential backoff.
           </p>
           <div className="mt-6 grid grid-cols-1 gap-5 sm:grid-cols-2">
-            {[
-              ["payment.confirmed", "A payment reached your confirmation threshold."],
-              ["payment.failed", "A payment expired or failed on-chain."],
-              ["payout.paid", "A settlement confirmed to your treasury wallet."],
-              ["webhook.paused", "An endpoint was paused after repeated failures."],
-            ].map(([event, desc]) => (
+            {webhookEvents.map(([event, desc]) => (
               <div
                 key={event}
                 className="rounded-[20px] border-2 border-ink bg-cream p-6 shadow-[4px_4px_0_var(--color-ink)]"
@@ -195,8 +241,8 @@ export default function DocsPage() {
             Ready to take payments?
           </h2>
           <p className="mx-auto mt-3 max-w-[46ch] text-[15px] leading-[1.6] text-cream/80">
-            Create a live key, paste it into your server, and ship your first
-            crypto checkout today.
+            Start in sandbox on testnets, then flip the Go-live switch when
+            you&apos;re ready for mainnet.
           </p>
           <div className="mt-8 flex flex-wrap justify-center gap-4">
             <Link

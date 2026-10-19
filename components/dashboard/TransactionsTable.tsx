@@ -56,7 +56,7 @@ const columns: Column<Payment>[] = [
     align: "right",
     cell: (p) => (
       <span className="font-mono text-[12.5px] text-d-muted">
-        -${feeUsd(p.amountUsd).toFixed(2)}
+        -${(p.feeUsd ?? feeUsd(p.amountUsd, p.feeBps)).toFixed(2)}
       </span>
     ),
   },
@@ -65,7 +65,7 @@ const columns: Column<Payment>[] = [
     align: "right",
     cell: (p) => (
       <span className="font-mono text-[13px] font-semibold text-d-success">
-        ${netUsd(p.amountUsd).toFixed(2)}
+        ${(p.netUsd ?? netUsd(p.amountUsd, p.feeBps)).toFixed(2)}
       </span>
     ),
   },

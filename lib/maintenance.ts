@@ -6,6 +6,8 @@ import { getKv, pruneKv, setKv } from "./kv";
 import { paymentIntents, webhookEvents } from "./schema";
 import { markInvoicePaid } from "./invoices";
 import { deliverPending, emitEvent } from "./webhooks";
+import { pruneIdempotencyKeys } from "./api/idempotency";
+import { completeCheckoutSessionForIntent, expireStaleCheckoutSessions } from "./api/checkout";
 
 /** Retry cadence for a submitted tx that is not mined yet. */
 export const VERIFY_PENDING_MS = 15_000;
@@ -71,6 +73,7 @@ export async function verifyAndMark(intent: PaymentIntent): Promise<VerifyOutcom
       dedupeKey: `payment.confirmed:${fresh.id}`,
     });
     if (intent.invoice_id) await markInvoicePaid(intent.invoice_id);
+    await completeCheckoutSessionForIntent(fresh.id);
   } else {
     await markIntent(intent.id, {
       status: "failed",
@@ -99,6 +102,8 @@ export interface MaintenanceStats {
   prunedIntents: number;
   prunedKv: number;
   prunedWebhookEvents: number;
+  prunedIdempotency: number;
+  checkoutExpired: number;
 }
 
 export async function sweepExpired(): Promise<number> {
@@ -222,6 +227,8 @@ export async function runMaintenance(opts: {
   const pruned = opts.pruneTerminalOlderThanMs
     ? await prune(opts.pruneTerminalOlderThanMs, 24 * 60 * 60 * 1000)
     : { intents: 0, kv: 0, webhookEvents: 0 };
+  const prunedIdempotency = await pruneIdempotencyKeys();
+  const checkoutExpired = await expireStaleCheckoutSessions();
   return {
     expired,
     detected,
@@ -230,5 +237,7 @@ export async function runMaintenance(opts: {
     prunedIntents: pruned.intents,
     prunedKv: pruned.kv,
     prunedWebhookEvents: pruned.webhookEvents,
+    prunedIdempotency,
+    checkoutExpired,
   };
 }

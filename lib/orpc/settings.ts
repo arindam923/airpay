@@ -1,13 +1,33 @@
+import { after } from "next/server";
 import { eq } from "drizzle-orm";
 import { ORPCError } from "@orpc/server";
 import { getDb } from "@/lib/db";
-import { emailSettings, workspaceSettings } from "@/lib/schema";
+import { emailSettings, workspaceSettings, type SettlementMerchantRow } from "@/lib/schema";
 import { orgScoped, adminOnly } from "./base";
-import { updateEmailSchema, updateSettingsSchema } from "@/lib/schemas/settings";
+import { setProductionSchema, updateEmailSchema, updateSettingsSchema } from "@/lib/schemas/settings";
+import { isOnboarded } from "@/lib/onboarding";
+import { isProductionReady } from "@/lib/environment";
 import { checkoutAppearanceSchema } from "@/lib/schemas/checkout-appearance";
 import { decryptSecret, encryptSecret } from "@/lib/crypto";
 import { sendEmail } from "@/lib/email/client";
 import { getOrgEmailConfig, maskEmailConfig } from "@/lib/email/config";
+import { listSettlementMerchants } from "@/lib/settlement/merchants";
+import { syncOrgMerchants, settlementAdminConfigured } from "@/lib/settlement/register";
+
+export function toPublicSettlement(row: SettlementMerchantRow) {
+  return {
+    chainKey: row.chainKey,
+    merchantId: row.merchantId,
+    contractAddress: row.contractAddress,
+    payoutAddress: row.payoutAddress,
+    feeBps: row.feeBps,
+    status: row.status,
+    environment: row.environment,
+    registerTxHash: row.registerTxHash,
+    error: row.error,
+    updatedAt: row.updatedAt,
+  };
+}
 
 export const settingsRouter = {
   get: orgScoped.handler(async ({ context }) => {
@@ -22,11 +42,57 @@ export const settingsRouter = {
       .from(emailSettings)
       .where(eq(emailSettings.organizationId, context.organizationId!))
       .limit(1);
+    const settlement = await listSettlementMerchants(context.organizationId!);
     return {
       ...(rows[0] ?? null),
       email: maskEmailConfig(emailRows[0] ?? null),
+      settlement: settlement.map(toPublicSettlement),
+      settlementAdminConfigured: settlementAdminConfigured(),
+      productionReady: isProductionReady(),
     };
   }),
+
+  /**
+   * Dashboard "Go live" switch. Production resources stay server-gated by
+   * `PRODUCTION_READY`; this only records the workspace's intent so mainnet
+   * unlocks the moment the platform ships it.
+   */
+  setProduction: adminOnly
+    .input(setProductionSchema)
+    .handler(async ({ input, context }) => {
+      const db = await getDb();
+      const orgId = context.organizationId!;
+      const rows = await db
+        .select()
+        .from(workspaceSettings)
+        .where(eq(workspaceSettings.organizationId, orgId))
+        .limit(1);
+      if (input.enabled && !isOnboarded(rows[0] ?? null)) {
+        throw new ORPCError("PRECONDITION_FAILED", {
+          message: "Finish onboarding and save your payout destinations before going live.",
+        });
+      }
+      const now = Date.now();
+      const productionEnabledAt = input.enabled ? now : null;
+      const values = {
+        productionEnabled: input.enabled,
+        productionEnabledAt,
+        updatedAt: now,
+      };
+      await db
+        .insert(workspaceSettings)
+        .values({ organizationId: orgId, ...values })
+        .onConflictDoUpdate({
+          target: workspaceSettings.organizationId,
+          set: values,
+        });
+      return {
+        ok: true,
+        productionEnabled: input.enabled,
+        productionEnabledAt,
+        productionReady: isProductionReady(),
+      };
+    }),
 
   update: adminOnly
     .input(updateSettingsSchema)
@@ -58,8 +124,43 @@ export const settingsRouter = {
           target: workspaceSettings.organizationId,
           set: values,
         });
+
+      // Register/refresh the merchant on the settlement contract for every
+      // enabled chain (best-effort; failures are recorded per row).
+      const syncSettings = {
+        organizationId: context.organizationId!,
+        enabledChains: input.enabledChains,
+        payoutMode: input.payoutMode,
+        payoutWallet,
+        payoutAddresses: input.payoutAddresses,
+      };
+      after(() => {
+        void syncOrgMerchants(syncSettings, { environment: context.environment });
+      });
+
       return { ok: true };
     }),
+
+  /** Manually (re)register every enabled settlement chain for this workspace. */
+  syncSettlement: adminOnly.handler(async ({ context }) => {
+    const db = await getDb();
+    const rows = await db
+      .select()
+      .from(workspaceSettings)
+      .where(eq(workspaceSettings.organizationId, context.organizationId!))
+      .limit(1);
+    const settings = rows[0] ?? null;
+    if (!settings) {
+      throw new ORPCError("PRECONDITION_FAILED", { message: "Finish workspace setup first." });
+    }
+    if (!settlementAdminConfigured()) {
+      throw new ORPCError("PRECONDITION_FAILED", {
+        message: "Settlement is not configured on the server (missing admin key).",
+      });
+    }
+    const merchants = await syncOrgMerchants(settings, { environment: context.environment });
+    return { settlement: merchants.map(toPublicSettlement) };
+  }),
 
   updateCheckout: adminOnly
     .input(checkoutAppearanceSchema)

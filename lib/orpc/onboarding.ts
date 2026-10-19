@@ -1,8 +1,10 @@
+import { after } from "next/server";
 import { eq } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import { workspaceSettings } from "@/lib/schema";
 import { auth } from "@/lib/auth";
 import { enabledPairs, isOnboarded } from "@/lib/onboarding";
+import { syncOrgMerchants } from "@/lib/settlement/register";
 import { orgScoped, adminOnly } from "./base";
 import { completeOnboardingSchema } from "@/lib/schemas/onboarding";
 
@@ -58,6 +60,21 @@ export const onboardingRouter = {
             updatedAt: now,
           },
         });
+
+      // Register the merchant on the settlement contract for every enabled
+      // chain (best-effort; failures are recorded per row).
+      after(() => {
+        void syncOrgMerchants(
+          {
+            organizationId: context.organizationId!,
+            enabledChains: input.enabledChains,
+            payoutMode: "all",
+            payoutWallet: input.payoutWallet,
+            payoutAddresses: null,
+          },
+          { environment: context.environment },
+        );
+      });
 
       let invited = 0;
       for (const invite of input.invites ?? []) {

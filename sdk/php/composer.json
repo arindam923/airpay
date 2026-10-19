@@ -1,0 +1,21 @@
+{
+  "name": "airpay/airpay",
+  "description": "Official AirPay PHP SDK.",
+  "type": "library",
+  "license": "MIT",
+  "require": {
+    "php": ">=8.0",
+    "ext-curl": "*",
+    "ext-json": "*"
+  },
+  "autoload": {
+    "psr-4": {
+      "AirPay\\": "src/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "AirPay\\Tests\\": "tests/"
+    }
+  }
+}

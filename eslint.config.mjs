@@ -15,6 +15,8 @@ const eslintConfig = defineConfig([
     // Vendored skill scripts, not project code:
     ".agents/**",
     ".claude/**",
+    // SDK packages compile with their own tsconfig/eslint config:
+    "sdk/**",
   ]),
 ]);
 

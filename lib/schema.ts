@@ -8,8 +8,16 @@ import {
   jsonb,
   index,
   uniqueIndex,
+  primaryKey,
 } from "drizzle-orm/pg-core";
-import type { EmailProvider, IntentStatus, InvoiceStatus, InvoiceTemplate } from "./api-types";
+import type {
+  ApiKeyKind,
+  CheckoutSessionStatus,
+  EmailProvider,
+  IntentStatus,
+  InvoiceStatus,
+  InvoiceTemplate,
+} from "./api-types";
 import type { CheckoutAppearance } from "./schemas/checkout-appearance";
 import type { Environment } from "./environment";
 import { organization, user } from "./auth-schema";
@@ -103,7 +111,20 @@ export const paymentIntents = pgTable(
     token: text("token").notNull(),
     expected_units: text("expected_units").notNull(),
     receiver: text("receiver").notNull(),
+    /**
+     * Settlement contract routing. All four are null for the legacy direct-
+     * transfer path (no contract configured for the chain); when set, `receiver`
+     * is the settlement contract and the fee is split on-chain.
+     */
+    merchant_id: text("merchant_id"),
+    fee_bps: integer("fee_bps"),
+    fee_units: text("fee_units"),
+    net_units: text("net_units"),
     invoice_id: text("invoice_id").references(() => invoices.id, { onDelete: "set null" }),
+    /** SHA-256 of the API `client_secret`; only the hash is stored. */
+    client_secret_hash: text("client_secret_hash"),
+    /** Free-form merchant metadata echoed back on API reads and webhooks. */
+    metadata: jsonb("metadata").$type<Record<string, string>>(),
     payer: text("payer"),
     tx_hash: text("tx_hash"),
     status: text("status").$type<IntentStatus>().notNull(),
@@ -126,6 +147,57 @@ export const paymentIntents = pgTable(
     index("idx_intents_expires_at").on(t.expires_at),
     index("idx_intents_next_verify_at").on(t.next_verify_at),
     index("idx_intents_invoice").on(t.invoice_id),
+  ],
+);
+
+/**
+ * Hosted checkout session created through the public API. Wraps a payment
+ * intent with redirect URLs and merchant metadata; the `/checkout/[id]` page
+ * renders it and redirects to `successUrl` once paid.
+ */
+export const checkoutSessions = pgTable(
+  "checkout_sessions",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+    environment: text("environment").$type<Environment>().notNull().default("sandbox"),
+    intent_id: text("intent_id").references(() => paymentIntents.id, { onDelete: "set null" }),
+    status: text("status").$type<CheckoutSessionStatus>().notNull().default("open"),
+    success_url: text("success_url"),
+    cancel_url: text("cancel_url"),
+    client_reference_id: text("client_reference_id"),
+    metadata: jsonb("metadata").$type<Record<string, string>>(),
+    created_at: bigint("created_at", { mode: "number" }).notNull(),
+    expires_at: bigint("expires_at", { mode: "number" }).notNull(),
+    completed_at: bigint("completed_at", { mode: "number" }),
+  },
+  (t) => [
+    index("idx_checkout_sessions_org").on(t.organizationId, t.created_at),
+    index("idx_checkout_sessions_intent").on(t.intent_id),
+    index("idx_checkout_sessions_status").on(t.status, t.expires_at),
+  ],
+);
+
+/**
+ * Durable Idempotency-Key store for the public API. A key is unique per
+ * (organization, environment); completed responses are replayed verbatim.
+ */
+export const idempotencyKeys = pgTable(
+  "idempotency_keys",
+  {
+    organizationId: text("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+    environment: text("environment").$type<Environment>().notNull().default("sandbox"),
+    key: text("key").notNull(),
+    request_hash: text("request_hash").notNull(),
+    status: text("status").$type<"in_progress" | "completed">().notNull().default("in_progress"),
+    response_status: integer("response_status"),
+    response_body: text("response_body"),
+    created_at: bigint("created_at", { mode: "number" }).notNull(),
+    expires_at: bigint("expires_at", { mode: "number" }).notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.organizationId, t.environment, t.key] }),
+    index("idx_idempotency_expires").on(t.expires_at),
   ],
 );
 
@@ -163,6 +235,13 @@ export const apiKeys = pgTable(
     prefix: text("prefix").notNull(),
     hashedSecret: text("hashed_secret").notNull(),
     lastFour: text("last_four").notNull(),
+    /** `secret` for server keys, `publishable` for browser-safe keys. */
+    kind: text("kind").$type<ApiKeyKind>().notNull().default("secret"),
+    /**
+     * Plaintext publishable key. Publishable keys are public by design, so the
+     * dashboard can display them at any time; secret keys never store this.
+     */
+    publicValue: text("public_value"),
     scope: text("scope").notNull().default("full"),
     environment: text("environment").$type<Environment>().notNull().default("sandbox"),
     revoked: boolean("revoked").notNull().default(false),
@@ -259,6 +338,9 @@ export const workspaceSettings = pgTable("workspace_settings", {
   /** Hosted-checkout theming. `null` falls back to the AirPay Classic default. */
   checkoutAppearance: jsonb("checkout_appearance").$type<CheckoutAppearance>(),
   onboardedAt: bigint("onboarded_at", { mode: "number" }),
+  /** Per-org switch that unlocks production (mainnet) resources from the dashboard. */
+  productionEnabled: boolean("production_enabled").notNull().default(false),
+  productionEnabledAt: bigint("production_enabled_at", { mode: "number" }),
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 });
 
@@ -288,6 +370,36 @@ export const paymentLinks = pgTable(
     index("idx_links_org").on(t.organizationId),
     index("idx_links_org_env").on(t.organizationId, t.environment),
     uniqueIndex("uq_links_slug").on(t.slug),
+  ],
+);
+
+/**
+ * Per-organization on-chain merchant registration for the AirPay settlement
+ * contract. One row per (organization, chain). Mirrors the contract's `Merchant`
+ * registry so payments can be routed and fees displayed without an RPC call.
+ */
+export const settlementMerchants = pgTable(
+  "settlement_merchants",
+  {
+    organizationId: text("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+    chainKey: text("chain_key").notNull(),
+    /** bytes32 merchant id (hex) used by the contract. */
+    merchantId: text("merchant_id").notNull(),
+    contractAddress: text("contract_address").notNull(),
+    /** Payout snapshot registered on-chain for this chain. */
+    payoutAddress: text("payout_address").notNull(),
+    /** Platform fee in basis points (90 = 0.90%). */
+    feeBps: integer("fee_bps").notNull().default(90),
+    status: text("status").$type<"pending" | "active" | "failed">().notNull().default("pending"),
+    environment: text("environment").$type<Environment>().notNull().default("sandbox"),
+    registerTxHash: text("register_tx_hash"),
+    error: text("error"),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.organizationId, t.chainKey] }),
+    index("idx_settlement_merchants_org").on(t.organizationId),
   ],
 );
 
@@ -333,6 +445,7 @@ export const emailSettings = pgTable("email_settings", {
 export type PaymentIntentRow = typeof paymentIntents.$inferSelect;
 export type WorkspaceSettingsRow = typeof workspaceSettings.$inferSelect;
 export type PaymentLinkRow = typeof paymentLinks.$inferSelect;
+export type SettlementMerchantRow = typeof settlementMerchants.$inferSelect;
 export type InvoiceRow = typeof invoices.$inferSelect;
 export type InvoiceItemRow = typeof invoiceItems.$inferSelect;
 export type InvoiceEmailRow = typeof invoiceEmails.$inferSelect;
@@ -340,3 +453,6 @@ export type EmailSettingsRow = typeof emailSettings.$inferSelect;
 export type WebhookRow = typeof webhooks.$inferSelect;
 export type WebhookEventRow = typeof webhookEvents.$inferSelect;
 export type WebhookDeliveryRow = typeof webhookDeliveries.$inferSelect;
+export type CheckoutSessionRow = typeof checkoutSessions.$inferSelect;
+export type IdempotencyKeyRow = typeof idempotencyKeys.$inferSelect;
+export type ApiKeyRow = typeof apiKeys.$inferSelect;

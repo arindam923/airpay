@@ -32,8 +32,8 @@ export default function PaymentDrawer() {
   if (!payment) return null;
 
   const gross = payment.amountUsd;
-  const fee = feeUsd(gross);
-  const net = netUsd(gross);
+  const fee = payment.feeUsd ?? feeUsd(gross, payment.feeBps);
+  const net = payment.netUsd ?? netUsd(gross, payment.feeBps);
 
   const finalLabel =
     payment.statusRaw === "confirmed"
@@ -131,7 +131,7 @@ export default function PaymentDrawer() {
                   </span>,
                 ],
                 [
-                  `AirPay fee (${formatFeePercent()})`,
+                  `AirPay fee (${formatFeePercent(payment.feeBps)})`,
                   <span key="fee" className="font-mono">
                     {`-$${fee.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                   </span>,

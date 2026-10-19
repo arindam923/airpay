@@ -3,11 +3,12 @@
 import { useEffect, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { QRCodeSVG } from "qrcode.react";
-import { parseAbi } from "viem";
+import { parseAbi, type Hex } from "viem";
 import {
   useAccount,
   useBalance,
   useDisconnect,
+  usePublicClient,
   useReadContract,
   useSendTransaction,
   useSwitchChain,
@@ -37,12 +38,14 @@ import type { PublicLink } from "@/lib/links";
 import { usdToUnits } from "@/lib/amounts";
 import { friendlyTxError } from "@/lib/errors";
 import { preflightPayment } from "@/lib/preflight";
+import { SETTLEMENT_ABI, refFor } from "@/lib/settlement/abi";
 import type { PublicIntent, PublicInvoiceDetail } from "@/lib/api-types";
 import { copyText, shortWallet } from "@/components/dashboard/utils";
 import { orpcClient } from "@/lib/orpc/client";
 
 const ERC20_ABI = parseAbi([
   "function transfer(address to, uint256 amount) returns (bool)",
+  "function approve(address spender, uint256 amount) returns (bool)",
   "function balanceOf(address owner) view returns (uint256)",
 ]);
 
@@ -263,15 +266,31 @@ export default function HostedCheckout({
   invoice = null,
   invoiceId = null,
   appearance = null,
+  settlementContract = null,
+  initialIntent = null,
+  successUrl = null,
 }: {
   receiver: string;
   link?: PublicLink | null;
   invoice?: PublicInvoiceDetail | null;
   invoiceId?: string | null;
   appearance?: CheckoutAppearance | null;
+  /** Settlement contract for this chain, when payments route through it. */
+  settlementContract?: string | null;
+  /** Pre-created intent (hosted checkout session): skip on-demand creation. */
+  initialIntent?: PublicIntent | null;
+  successUrl?: string | null;
+  cancelUrl?: string | null;
 }) {
   const look = appearance ?? DEFAULT_APPEARANCE;
-  const availableMethods: Method[] = look.methods.length ? look.methods : ["wallet"];
+  // Settlement payments must be sent via a contract call (payNative/payToken),
+  // which a QR code can't express — so the QR method is not offered.
+  const settlementMode = !!settlementContract;
+  const availableMethods: Method[] = settlementMode
+    ? ["wallet"]
+    : look.methods.length
+      ? look.methods
+      : ["wallet"];
   const [phase, setPhase] = useState<Phase>("loading");
   const [cfg, setCfg] = useState<CheckoutConfig | null>(null);
   const [amountText, setAmountText] = useState("");
@@ -291,6 +310,7 @@ export default function HostedCheckout({
   const { switchChainAsync } = useSwitchChain();
   const { sendTransactionAsync } = useSendTransaction();
   const { writeContractAsync } = useWriteContract();
+  const publicClient = usePublicClient();
 
   const net = testnetByName(chain);
   const wrongNetwork = isConnected && net != null && chainId !== net.chainId;
@@ -364,6 +384,9 @@ export default function HostedCheckout({
       });
       return;
     }
+    // Hosted checkout sessions supply a pre-created intent; never fall back to
+    // query-string/demo parsing in that case.
+    if (initialIntent) return;
     const search = window.location.search;
     const parts = window.location.pathname.split("/").filter(Boolean);
     const slug = parts.length > 0 && parts[parts.length - 1] !== "pay" ? parts[parts.length - 1] : "";
@@ -384,7 +407,43 @@ export default function HostedCheckout({
       setCoin(parsed.coin);
       setPhase("checkout");
     });
-  }, [link]);
+  }, [link, initialIntent]);
+
+  // Initialise straight from a pre-created checkout-session intent.
+  useEffect(() => {
+    if (!initialIntent) return;
+    const parsed: CheckoutConfig = {
+      slug: "checkout",
+      title: initialIntent.title,
+      merchant: initialIntent.merchant,
+      mode: "fixed",
+      amount: initialIntent.amountUsd,
+      min: 0,
+      max: null,
+      chain: initialIntent.chainName,
+      coin: initialIntent.token,
+    };
+    queueMicrotask(() => {
+      setCfg(parsed);
+      setAmountText("");
+      setChain(parsed.chain);
+      setCoin(parsed.coin);
+      setIntent(initialIntent);
+      setPhase("checkout");
+    });
+  }, [initialIntent]);
+
+  // Return the payer to the merchant's success URL once the payment confirms.
+  useEffect(() => {
+    if (phase !== "success" || !successUrl) return;
+    try {
+      const target = new URL(successUrl, window.location.origin);
+      if (intent) target.searchParams.set("payment_intent", intent.id);
+      window.location.assign(target.toString());
+    } catch {
+      // Ignore malformed URLs — the inline receipt remains visible.
+    }
+  }, [phase, successUrl, intent]);
 
   // Mark a sent invoice as viewed the first time its checkout page loads.
   useEffect(() => {
@@ -556,24 +615,57 @@ export default function HostedCheckout({
     }
     setPaying(true);
     try {
+      // Create the intent first: the settlement destination (contract +
+      // merchantId) is only known once the server resolves the merchant.
+      const created = initialIntent ?? (await createIntentApi(cfg, amountNum, chain, coin, invoiceId));
+      const units = BigInt(created.expectedUnits);
+      const merchantId = created.merchantId as Hex | null;
+      const settlement = merchantId ? { merchantId, ref: refFor(created.id) } : null;
+
       // Pre-flight: verify balance + gas + on-chain simulation BEFORE the
       // wallet opens, so MetaMask never shows "failed to simulate".
       const pf = await preflightPayment({
         net,
         account: address,
-        receiver: receiver as `0x${string}`,
+        receiver: created.receiver as `0x${string}`,
         token: coin === "ETH" ? "ETH" : "USDC",
-        units: needUnits,
+        units,
+        settlement,
       });
       if (!pf.ok) {
         setPayError(pf.error);
         return;
       }
 
-      const created = await createIntentApi(cfg, amountNum, chain, coin, invoiceId);
-      const units = BigInt(created.expectedUnits);
       let hash: `0x${string}`;
-      if (coin === "ETH") {
+      if (settlement && coin === "ETH") {
+        hash = await writeContractAsync({
+          chainId: net.chainId,
+          address: created.receiver as `0x${string}`,
+          abi: SETTLEMENT_ABI,
+          functionName: "payNative",
+          args: [settlement.merchantId, settlement.ref],
+          value: units,
+        });
+      } else if (settlement) {
+        // USDC: approve the settlement contract, wait for it to land, then
+        // settle in a second call.
+        const approveHash = await writeContractAsync({
+          chainId: net.chainId,
+          address: net.usdc,
+          abi: ERC20_ABI,
+          functionName: "approve",
+          args: [created.receiver as `0x${string}`, units],
+        });
+        await publicClient?.waitForTransactionReceipt({ hash: approveHash });
+        hash = await writeContractAsync({
+          chainId: net.chainId,
+          address: created.receiver as `0x${string}`,
+          abi: SETTLEMENT_ABI,
+          functionName: "payToken",
+          args: [settlement.merchantId, net.usdc, units, settlement.ref],
+        });
+      } else if (coin === "ETH") {
         hash = await sendTransactionAsync({
           chainId: net.chainId,
           to: created.receiver as `0x${string}`,
@@ -603,7 +695,7 @@ export default function HostedCheckout({
     setPayError(null);
     setPaying(true);
     try {
-      const created = await createIntentApi(cfg, amountNum, chain, coin, invoiceId);
+      const created = initialIntent ?? (await createIntentApi(cfg, amountNum, chain, coin, invoiceId));
       setIntent(created);
     } catch (err) {
       setPayError(err instanceof Error ? err.message : "Could not start payment.");
@@ -954,8 +1046,9 @@ export default function HostedCheckout({
             </button>
 
             <p className="mt-4 text-center text-[12px] leading-[1.5] text-ink-soft">
-              Testnet payment — funds settle directly to {cfg.merchant} on EVM
-              testnets. No real funds move.
+              {settlementMode
+                ? `Testnet payment — settled on-chain via AirPay for ${cfg.merchant}. No real funds move.`
+                : `Testnet payment — funds settle directly to ${cfg.merchant} on EVM testnets. No real funds move.`}
             </p>
           </div>
         )}

@@ -28,6 +28,10 @@ export function toPayment(p: PublicIntent): Payment {
     confirmations: p.confirmations,
     requiredConfirmations: p.requiredConfirmations,
     environment: p.environment,
+    merchantId: p.merchantId,
+    feeBps: p.feeBps,
+    feeUsd: p.feeUsd,
+    netUsd: p.netUsd,
   };
 }
 
