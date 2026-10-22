@@ -4,8 +4,19 @@ import { createTanstackQueryUtils } from "@orpc/tanstack-query";
 import { ENV_HEADER } from "@/lib/environment";
 import { getEnvironment } from "@/lib/env-store";
 
+const baseUrl =
+  typeof window !== "undefined"
+    ? window.location.origin
+    : (
+        process.env.NEXT_PUBLIC_APP_URL ??
+        process.env.BETTER_AUTH_URL ??
+        (process.env.VERCEL_URL
+          ? `https://${process.env.VERCEL_URL}`
+          : "http://localhost:3000")
+      ).replace(/\/$/, "");
+
 const link = new RPCLink({
-  url: typeof window !== "undefined" ? `${window.location.origin}/api/rpc` : "http://localhost:3000/api/rpc",
+  url: `${baseUrl}/api/rpc`,
   headers: () => ({ [ENV_HEADER]: getEnvironment() }),
 });
 
