@@ -1,8 +1,9 @@
 import "./env";
 
-import { runMaintenance } from "../lib/maintenance";
+import { runCleanup, runMaintenance } from "../lib/maintenance";
 
 const TICK_MS = 5_000;
+const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 function log(level: "info" | "warn" | "error", msg: string, extra?: unknown): void {
   const line = `[worker ${new Date().toISOString()}] ${level.toUpperCase()} ${msg}`;
@@ -11,12 +12,22 @@ function log(level: "info" | "warn" | "error", msg: string, extra?: unknown): vo
   else console.log(line);
 }
 
+let lastCleanup = 0;
+
 async function tick(): Promise<void> {
   const stats = await runMaintenance({ maxDetect: 25, maxVerify: 50, maxDeliveries: 50 });
   if (stats.expired || stats.detected || stats.verified || stats.delivered) {
     log(
       "info",
       `expired=${stats.expired} detected=${stats.detected} verified=${stats.verified} delivered=${stats.delivered}`,
+    );
+  }
+  if (Date.now() - lastCleanup >= CLEANUP_INTERVAL_MS) {
+    const cleanup = await runCleanup();
+    lastCleanup = Date.now();
+    log(
+      "info",
+      `cleanup intents=${cleanup.prunedIntents} kv=${cleanup.prunedKv} webhookEvents=${cleanup.prunedWebhookEvents} idempotency=${cleanup.prunedIdempotency}`,
     );
   }
 }

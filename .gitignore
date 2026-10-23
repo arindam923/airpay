@@ -58,6 +58,10 @@ next-env.d.ts
 /sdk/**/*.egg-info
 /sdk/**/build
 *.pyc
+/sdk/**/vendor
+/sdk/php/composer.lock
+/sdk/**/.phpunit.cache
+/sdk/**/.phpunit.result.cache
 
 # ai tooling & agent skills
 .agents/

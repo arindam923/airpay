@@ -1,37 +1,36 @@
 import { connection } from "next/server";
 import { NextResponse } from "next/server";
+import { authorizeCron } from "@/lib/cron-auth";
 import { runMaintenance } from "@/lib/maintenance";
-
-const TERMINAL_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
 /**
  * Reconciler for serverless deploys: sweeps expired intents, QR-detects
  * incoming payments and verifies submitted txs when nobody is polling.
  * The checkout's GET self-heal is the fast path; this is the safety net.
  *
- * Schedule via vercel.json (`crons`); protect with CRON_SECRET.
+ * Vercel Hobby cannot run per-minute crons, so an external scheduler
+ * (cron-job.org) pings this route every minute. Protect with CRON_SECRET.
+ * Daily pruning lives in `/api/cron/cleanup`.
  */
 export async function GET(request: Request) {
   // Request-time only: never run maintenance during build/prerender.
   await connection();
 
-  const secret = process.env.CRON_SECRET?.trim();
-  const production = !!process.env.VERCEL || process.env.NODE_ENV === "production";
-  if (!secret) {
-    if (production) {
+  const auth = authorizeCron(request);
+  if (!auth.ok) {
+    if (auth.status === 500) {
       console.error("[api/cron/verify] CRON_SECRET is not configured");
-      return NextResponse.json({ error: "Cron is not configured." }, { status: 500 });
     }
-  } else if (request.headers.get("authorization") !== `Bearer ${secret}`) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
 
   const started = Date.now();
   try {
+    // Kept small so a tick stays inside the pinger's request timeout.
     const stats = await runMaintenance({
       maxDetect: 15,
       maxVerify: 25,
-      pruneTerminalOlderThanMs: TERMINAL_RETENTION_MS,
+      maxDeliveries: 10,
     });
     return NextResponse.json({ ok: true, tookMs: Date.now() - started, ...stats });
   } catch (err) {

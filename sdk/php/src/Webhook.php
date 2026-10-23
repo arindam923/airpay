@@ -112,6 +112,9 @@ final class Webhook
         }
 
         $event = json_decode($payload, true);
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            throw new WebhookSignatureException('Webhook payload is not valid JSON.');
+        }
         if (!is_array($event) || !isset($event['type']) || !is_string($event['type'])) {
             throw new WebhookSignatureException('Webhook payload is missing a `type`.');
         }

@@ -55,7 +55,7 @@ const sdks = [
   { name: "TypeScript", pkg: "npm i @airpay/sdk", color: "bg-violet text-cream" },
   { name: "Browser JS", pkg: "npm i @airpay/js", color: "bg-sky text-ink" },
   { name: "Python", pkg: "pip install airpay", color: "bg-sun text-ink" },
-  { name: "Go", pkg: "go get airpay.dev/go", color: "bg-mint text-ink" },
+  { name: "Go", pkg: "go get github.com/arindam923/airpay/sdk/go", color: "bg-mint text-ink" },
   { name: "PHP", pkg: "composer require airpay/airpay", color: "bg-coral text-cream" },
 ];
 

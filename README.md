@@ -86,6 +86,39 @@ The worker independently re-verifies every transaction on-chain (sender, recipie
 
 Intents are stored in Neon Postgres via `DATABASE_URL` and expire after 15 minutes.
 
+### Deploying on Vercel Hobby (free)
+
+Vercel Hobby only allows cron jobs **once per day**, so the per-minute reconciler
+is driven by an external scheduler instead:
+
+1. Generate and set `CRON_SECRET` in the Vercel project environment
+   (`openssl rand -hex 32`), then redeploy.
+2. Create a free [cron-job.org](https://cron-job.org) job:
+   - URL: `https://<your-app>.vercel.app/api/cron/verify`
+   - Schedule: every minute
+   - Header: `Authorization: Bearer <CRON_SECRET>`
+   - Enable failure notifications.
+3. Vercel Cron calls `GET /api/cron/cleanup` once a day (`0 3 * * *`) to prune
+   terminal intents, stale kv rows, delivered webhook events and expired
+   idempotency keys.
+
+`GET /api/cron/verify` is the safety net for users who close the tab before a QR
+payment lands; an open checkout still self-heals every few seconds. Both routes
+reject requests without the bearer secret in production.
+
+### SDKs
+
+| Language | Package | Source |
+| --- | --- | --- |
+| TypeScript / Node | `npm install @airpay/sdk` | `sdk/typescript` |
+| Browser JS | `npm install @airpay/js` | `sdk/js` |
+| Python | `pip install airpay` | `sdk/python` |
+| Go | `go get github.com/arindam923/airpay/sdk/go` | `sdk/go` |
+| PHP | `composer require airpay/airpay` | `sdk/php` |
+
+Release instructions and required repository secrets are in
+[`sdk/PUBLISHING.md`](sdk/PUBLISHING.md).
+
 ### Useful commands
 
 ```bash

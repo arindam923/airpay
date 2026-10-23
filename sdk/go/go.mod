@@ -1,3 +1,3 @@
-module airpay.dev/go
+module github.com/arindam923/airpay/sdk/go
 
 go 1.21

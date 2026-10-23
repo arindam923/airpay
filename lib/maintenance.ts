@@ -99,11 +99,14 @@ export interface MaintenanceStats {
   detected: number;
   verified: number;
   delivered: number;
+  checkoutExpired: number;
+}
+
+export interface CleanupStats {
   prunedIntents: number;
   prunedKv: number;
   prunedWebhookEvents: number;
   prunedIdempotency: number;
-  checkoutExpired: number;
 }
 
 export async function sweepExpired(): Promise<number> {
@@ -218,26 +221,37 @@ export async function runMaintenance(opts: {
   maxDetect?: number;
   maxVerify?: number;
   maxDeliveries?: number;
-  pruneTerminalOlderThanMs?: number;
 }): Promise<MaintenanceStats> {
   const expired = await sweepExpired();
   const detected = await runDetectSweep(opts.maxDetect ?? 20);
   const verified = await runVerifySweep(opts.maxVerify ?? 20);
   const delivered = await deliverPending(opts.maxDeliveries ?? 25);
-  const pruned = opts.pruneTerminalOlderThanMs
-    ? await prune(opts.pruneTerminalOlderThanMs, 24 * 60 * 60 * 1000)
-    : { intents: 0, kv: 0, webhookEvents: 0 };
-  const prunedIdempotency = await pruneIdempotencyKeys();
   const checkoutExpired = await expireStaleCheckoutSessions();
+  return { expired, detected, verified, delivered, checkoutExpired };
+}
+
+/** How long terminal rows are kept before the daily cleanup deletes them. */
+export const TERMINAL_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+const KV_RETENTION_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Cold-path housekeeping, split out from `runMaintenance` so the per-minute
+ * tick stays cheap on serverless (Vercel Hobby has a small CPU allowance).
+ * Meant to run about once a day.
+ */
+export async function runCleanup(opts: {
+  terminalOlderThanMs?: number;
+  kvOlderThanMs?: number;
+} = {}): Promise<CleanupStats> {
+  const pruned = await prune(
+    opts.terminalOlderThanMs ?? TERMINAL_RETENTION_MS,
+    opts.kvOlderThanMs ?? KV_RETENTION_MS,
+  );
+  const prunedIdempotency = await pruneIdempotencyKeys();
   return {
-    expired,
-    detected,
-    verified,
-    delivered,
     prunedIntents: pruned.intents,
     prunedKv: pruned.kv,
     prunedWebhookEvents: pruned.webhookEvents,
     prunedIdempotency,
-    checkoutExpired,
   };
 }

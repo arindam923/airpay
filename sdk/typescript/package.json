@@ -3,6 +3,25 @@
   "version": "0.1.0",
   "description": "Official AirPay SDK for TypeScript and JavaScript.",
   "license": "MIT",
+  "author": "AirPay",
+  "homepage": "https://airpay.dev/docs",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/arindam923/airpay.git",
+    "directory": "sdk/typescript"
+  },
+  "bugs": {
+    "url": "https://github.com/arindam923/airpay/issues"
+  },
+  "keywords": [
+    "airpay",
+    "payments",
+    "crypto",
+    "stablecoin",
+    "usdc",
+    "checkout",
+    "sdk"
+  ],
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -21,8 +40,15 @@
   "engines": {
     "node": ">=18"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "typescript": "^5"
   }
 }
