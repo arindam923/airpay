@@ -1,0 +1,21 @@
+{
+  "name": "airpay-examples",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "npm --prefix ../sdk/typescript run build && npm --prefix ../sdk/js run build",
+    "mock": "node mock-server.mjs",
+    "example:typescript": "tsx typescript/checkout.ts",
+    "example:browser": "node server.mjs",
+    "test": "node run-all.mjs"
+  },
+  "dependencies": {
+    "@airpay/js": "file:../sdk/js",
+    "@airpay/sdk": "file:../sdk/typescript"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "tsx": "^4",
+    "typescript": "^5"
+  }
+}
