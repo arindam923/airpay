@@ -112,7 +112,7 @@ export interface CreatedApiIntent {
 
 /**
  * Shared creation path for `POST /v1/payment_intents` and
- * `POST /v1/checkout/sessions`, so both resources validate and emit
+ * `POST /v1/checkout_sessions`, so both resources validate and emit
  * identically.
  */
 export async function createApiIntent(params: CreateApiIntentParams): Promise<CreatedApiIntent> {

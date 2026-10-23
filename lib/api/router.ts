@@ -436,7 +436,7 @@ async function listCheckoutSessions(auth: ApiAuthContext, request: Request): Pro
   const base = publicBaseUrl(request);
   return jsonResponse({
     object: "list",
-    url: "/v1/checkout/sessions",
+    url: "/v1/checkout_sessions",
     has_more: rows.length > limit,
     data: rows.slice(0, limit).map((row) => toApiCheckoutSession(row, base)),
   });

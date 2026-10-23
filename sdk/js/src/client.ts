@@ -120,6 +120,7 @@ export class AirPayJS {
     if (args.body !== undefined) headers["content-type"] = "application/json";
     if (args.clientSecret) headers["airpay-client-secret"] = args.clientSecret;
 
+    const fetchImpl = this.fetchImpl;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeout);
     const onAbort = () => controller.abort();
@@ -129,7 +130,7 @@ export class AirPayJS {
     }
 
     try {
-      const response = await this.fetchImpl(url.toString(), {
+      const response = await fetchImpl(url.toString(), {
         method: args.method,
         headers,
         body: args.body === undefined ? undefined : JSON.stringify(args.body),

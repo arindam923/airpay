@@ -104,6 +104,7 @@ export class AirPay {
     if (args.idempotencyKey) headers["idempotency-key"] = args.idempotencyKey;
     if (args.clientSecret) headers["airpay-client-secret"] = args.clientSecret;
 
+    const fetchImpl = this.fetchImpl;
     let lastError: unknown;
     for (let attempt = 0; attempt <= this.maxNetworkRetries; attempt += 1) {
       const controller = new AbortController();
@@ -116,7 +117,7 @@ export class AirPay {
       const cleanup = () => args.signal?.removeEventListener("abort", onAbort);
 
       try {
-        const response = await this.fetchImpl(url, {
+        const response = await fetchImpl(url, {
           method: args.method,
           headers,
           body: args.body === undefined ? undefined : JSON.stringify(args.body),
@@ -276,7 +277,7 @@ class CheckoutSessionsResource {
   create(params: CheckoutSessionCreateParams, options?: RequestOptions): Promise<CheckoutSession> {
     return this.client.request<CheckoutSession>({
       method: "POST",
-      path: "/v1/checkout/sessions",
+      path: "/v1/checkout_sessions",
       body: toCheckoutSessionBody(params),
       idempotencyKey: options?.idempotencyKey,
       signal: options?.signal,
@@ -286,7 +287,7 @@ class CheckoutSessionsResource {
   retrieve(id: string, options?: RequestOptions): Promise<CheckoutSession> {
     return this.client.request<CheckoutSession>({
       method: "GET",
-      path: `/v1/checkout/sessions/${encodeURIComponent(id)}`,
+      path: `/v1/checkout_sessions/${encodeURIComponent(id)}`,
       signal: options?.signal,
     });
   }
@@ -294,7 +295,7 @@ class CheckoutSessionsResource {
   list(params: ListParams = {}, options?: RequestOptions): Promise<CheckoutSessionList> {
     return this.client.request<CheckoutSessionList>({
       method: "GET",
-      path: "/v1/checkout/sessions",
+      path: "/v1/checkout_sessions",
       query: { limit: params.limit, starting_after: params.startingAfter },
       signal: options?.signal,
     });
@@ -303,7 +304,7 @@ class CheckoutSessionsResource {
   expire(id: string, options?: RequestOptions): Promise<CheckoutSession> {
     return this.client.request<CheckoutSession>({
       method: "POST",
-      path: `/v1/checkout/sessions/${encodeURIComponent(id)}/expire`,
+      path: `/v1/checkout_sessions/${encodeURIComponent(id)}/expire`,
       signal: options?.signal,
     });
   }

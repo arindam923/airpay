@@ -302,7 +302,7 @@ type CheckoutSessionService struct{ client *Client }
 
 // Create creates a hosted checkout session.
 func (s *CheckoutSessionService) Create(ctx context.Context, params *CheckoutSessionCreateParams, idempotencyKey string) (*CheckoutSession, error) {
-	body, err := s.client.do(ctx, http.MethodPost, "/v1/checkout/sessions", requestOptions{
+	body, err := s.client.do(ctx, http.MethodPost, "/v1/checkout_sessions", requestOptions{
 		body:           params,
 		idempotencyKey: idempotencyKey,
 	})
@@ -314,7 +314,7 @@ func (s *CheckoutSessionService) Create(ctx context.Context, params *CheckoutSes
 
 // Retrieve fetches a checkout session.
 func (s *CheckoutSessionService) Retrieve(ctx context.Context, id string) (*CheckoutSession, error) {
-	body, err := s.client.do(ctx, http.MethodGet, "/v1/checkout/sessions/"+url.PathEscape(id), requestOptions{})
+	body, err := s.client.do(ctx, http.MethodGet, "/v1/checkout_sessions/"+url.PathEscape(id), requestOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -323,7 +323,7 @@ func (s *CheckoutSessionService) Retrieve(ctx context.Context, id string) (*Chec
 
 // List returns a page of checkout sessions.
 func (s *CheckoutSessionService) List(ctx context.Context, params ListParams) (*CheckoutSessionList, error) {
-	body, err := s.client.do(ctx, http.MethodGet, "/v1/checkout/sessions", requestOptions{query: listQuery(params)})
+	body, err := s.client.do(ctx, http.MethodGet, "/v1/checkout_sessions", requestOptions{query: listQuery(params)})
 	if err != nil {
 		return nil, err
 	}
@@ -336,7 +336,7 @@ func (s *CheckoutSessionService) List(ctx context.Context, params ListParams) (*
 
 // Expire expires an open checkout session.
 func (s *CheckoutSessionService) Expire(ctx context.Context, id string) (*CheckoutSession, error) {
-	body, err := s.client.do(ctx, http.MethodPost, "/v1/checkout/sessions/"+url.PathEscape(id)+"/expire", requestOptions{})
+	body, err := s.client.do(ctx, http.MethodPost, "/v1/checkout_sessions/"+url.PathEscape(id)+"/expire", requestOptions{})
 	if err != nil {
 		return nil, err
 	}

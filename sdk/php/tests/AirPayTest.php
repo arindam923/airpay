@@ -70,7 +70,7 @@ final class AirPayTest extends TestCase
 
         self::assertSame('cs_1', $session['id']);
         self::assertSame('POST', $requests[0]['method']);
-        self::assertSame('https://api.airpay.dev/v1/checkout/sessions', $requests[0]['url']);
+        self::assertSame('https://api.airpay.dev/v1/checkout_sessions', $requests[0]['url']);
         self::assertSame(
             '{"amount":1250,"chain":"base","success_url":"https:\/\/shop.example\/ok"}',
             $requests[0]['body'],

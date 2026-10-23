@@ -32,7 +32,7 @@ final class CheckoutSessionService
             'title',
             'merchant',
         ];
-        return $this->client->request('POST', '/v1/checkout/sessions', [
+        return $this->client->request('POST', '/v1/checkout_sessions', [
             'body' => array_intersect_key($params, array_flip($allowed)),
             'idempotencyKey' => $idempotencyKey,
         ]);
@@ -45,7 +45,7 @@ final class CheckoutSessionService
      */
     public function retrieve(string $sessionId): array
     {
-        return $this->client->request('GET', '/v1/checkout/sessions/' . rawurlencode($sessionId));
+        return $this->client->request('GET', '/v1/checkout_sessions/' . rawurlencode($sessionId));
     }
 
     /**
@@ -55,7 +55,7 @@ final class CheckoutSessionService
      */
     public function all(?int $limit = null, ?string $startingAfter = null): array
     {
-        return $this->client->request('GET', '/v1/checkout/sessions', [
+        return $this->client->request('GET', '/v1/checkout_sessions', [
             'query' => ['limit' => $limit, 'starting_after' => $startingAfter],
         ]);
     }
@@ -67,6 +67,6 @@ final class CheckoutSessionService
      */
     public function expire(string $sessionId): array
     {
-        return $this->client->request('POST', '/v1/checkout/sessions/' . rawurlencode($sessionId) . '/expire');
+        return $this->client->request('POST', '/v1/checkout_sessions/' . rawurlencode($sessionId) . '/expire');
     }
 }

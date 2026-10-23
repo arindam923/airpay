@@ -302,7 +302,7 @@ paths:
         "409":
           $ref: "#/components/responses/Conflict"
 
-  /v1/checkout/sessions:
+  /v1/checkout_sessions:
     post:
       tags: [Checkout Sessions]
       operationId: createCheckoutSession
@@ -367,7 +367,7 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
 
-  /v1/checkout/sessions/{session_id}:
+  /v1/checkout_sessions/{session_id}:
     parameters:
       - $ref: "#/components/parameters/CheckoutSessionId"
     get:
@@ -393,7 +393,7 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
-  /v1/checkout/sessions/{session_id}/expire:
+  /v1/checkout_sessions/{session_id}/expire:
     parameters:
       - $ref: "#/components/parameters/CheckoutSessionId"
     post:
@@ -953,7 +953,7 @@ components:
           const: list
         url:
           type: string
-          const: /v1/checkout/sessions
+          const: /v1/checkout_sessions
         has_more:
           type: boolean
         data:

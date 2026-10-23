@@ -276,12 +276,12 @@ class _CheckoutSessions:
             merchant=merchant,
         )
         return self._client._request(
-            "POST", "/v1/checkout/sessions", body=body, idempotency_key=idempotency_key
+            "POST", "/v1/checkout_sessions", body=body, idempotency_key=idempotency_key
         )
 
     def retrieve(self, session_id: str) -> AirPayObject:
         return self._client._request(
-            "GET", f"/v1/checkout/sessions/{urllib.parse.quote(session_id)}"
+            "GET", f"/v1/checkout_sessions/{urllib.parse.quote(session_id)}"
         )
 
     def list(
@@ -289,11 +289,11 @@ class _CheckoutSessions:
     ) -> AirPayObject:
         return self._client._request(
             "GET",
-            "/v1/checkout/sessions",
+            "/v1/checkout_sessions",
             query={"limit": limit, "starting_after": starting_after},
         )
 
     def expire(self, session_id: str) -> AirPayObject:
         return self._client._request(
-            "POST", f"/v1/checkout/sessions/{urllib.parse.quote(session_id)}/expire"
+            "POST", f"/v1/checkout_sessions/{urllib.parse.quote(session_id)}/expire"
         )

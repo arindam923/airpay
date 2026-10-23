@@ -46,7 +46,7 @@ func TestCheckoutSessionCreateAndErrorMapping(t *testing.T) {
 	if session.ID != "cs_1" || session.Status != SessionOpen {
 		t.Fatalf("unexpected session: %+v", session)
 	}
-	if gotPath != "/v1/checkout/sessions" {
+	if gotPath != "/v1/checkout_sessions" {
 		t.Errorf("path = %q", gotPath)
 	}
 	if gotAuth != "Bearer ap_test_x" {
